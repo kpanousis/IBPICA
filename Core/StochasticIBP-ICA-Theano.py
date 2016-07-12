@@ -22,7 +22,15 @@ class IBP_ICA:
         print("Creating gradient functions...")
         
         print("Initializing prior parameters...")
-        a,b,c,f,g_1,g_2,e_1,e_2=(1,1,1,1,1,1,1,1)
+        a=T.constant(1.0)
+        b=T.constant(1.0)
+        c=T.constant(1.0)
+        f=T.constant(1.0)
+        g_1=T.constant(1.0)
+        g_2=T.constant(1.0)
+        e_1=T.constant(1.0)
+        e_2=T.constant(1.0)
+
         xi=T.ones((K,J))*(1.0/J)
         
         #create the Theano variables
@@ -121,26 +129,28 @@ class IBP_ICA:
 
         likelihood=g_1*T.log(g_2)+(g_1-1)*(T.psi(t_g_1)-T.log(t_g_2))-g_2*(t_g_1/t_g_2)-T.log(T.gamma(g_1)) \
                     +a*T.log(b)+(a-1)*(T.psi(t_a)-T.log(t_b))-b*(t_a/t_b)-T.log(T.gamma(a)) \
-                    +T.sum(T.psi(t_g_1)-T.log(t_g_2)+(t_g_1/t_g_2-1)*(T.psi(t_tau)-T.psi(t_tau+h_tau))) \
+                    +T.sum(-T.psi(t_g_1)+T.log(t_g_2)+(t_g_1/t_g_2-1)*(T.psi(t_tau)-T.psi(t_tau+h_tau))) \
                     +T.sum(c*T.log(f)+(c-1)*(T.psi(t_c)-T.log(t_f))-f*(t_c/t_f)-T.log(T.gamma(c))) \
                     +T.sum(T.sum((xi-1)*(T.psi(t_xi)-T.psi(T.sum(t_xi,1))),1)) \
-                    +T.sum(e_1*T.log(e_2)-(e_1+1)*(T.log(t_e_2)-T.psi(t_e_1))-e_2*(t_e_1/t_e_2)) \
-                    +T.sum(0.5*(T.psi(t_c)-T.log(t_f))-0.5*(t_mu**2+t_l)*(t_c/t_f)) \
+                    +T.sum(e_1*T.log(e_2)-(e_1+1)*(T.log(t_e_2)-T.psi(t_e_1))-e_2*(t_e_1/t_e_2))-T.gamma(e_1) \
+                    +T.sum(0.5*T.log(2*np.pi)+0.5*(T.psi(t_c)-T.log(t_f))-0.5*(t_mu**2+t_l)*(t_c/t_f)) \
                     +T.sum(q_z*T.cumsum(T.psi(h_tau)-T.psi(t_tau+h_tau))+(1.0-q_z)*mult_bound)\
-                    +T.sum(0.5*zeta*(T.psi(t_e_1)-T.log(t_e_2)-(t_m**2+t_s)*(t_e_1/t_e_2))) \
-                    +T.sum(0.5*(T.psi(t_a)-T.log(t_b)) \
-                           -0.5*(T.dot(T.transpose(x), x)-T.dot(T.transpose(x),T.dot(T.transpose(t_mu),t_m))-T.dot(T.dot(T.transpose(t_m),T.transpose(t_mu)),x)+T.dot(T.dot(T.transpose(t_m),T.nlinalg.trace(t_l)+T.dot(T.transpose(t_mu),t_mu)),t_m))*(-t_a/t_b))
+                    +T.sum(zeta*(T.psi(t_xi)-T.psi(T.sum(t_xi,1))))\
+                    +T.sum(0.5*T.log(2*np.pi)+0.5*zeta*(T.psi(t_e_1)-T.log(t_e_2)-(t_m**2+t_s)*(t_e_1/t_e_2))) \
+                    +T.sum(-0.5*T.log(2*np.pi)-0.5*(T.psi(t_a)-T.log(t_b)) \
+                           -0.5*(T.dot(T.transpose(x), x)-T.dot(T.dot(T.transpose(x),T.transpose(t_mu)),t_m)-T.dot(T.dot(T.transpose(t_m),T.transpose(t_mu)),x)+T.dot(T.dot(T.transpose(t_m),T.nlinalg.trace(t_l)+T.dot(T.transpose(t_mu),t_mu)),t_m))*(t_b/(t_a-1)))
                     
-        entropy=0.5*(K+T.sum(T.log(t_s))) \
-                -T.sum((t_tau-1)*(T.psi(t_tau))-(h_tau-1)*T.psi(h_tau)+(t_tau+h_tau-2)*T.psi(t_tau+h_tau)) \
-                -T.sum((1.0-q_z)*T.log(1.0-q_z)-q_z*T.log(q_z)) \
-                +T.sum(t_g_1-T.log(t_g_2)+(1-t_g_1)*T.psi(t_g_1)) \
-                + T.sum(t_c-T.log(t_f)+(1-t_c)*T.psi(t_c)) \
+        entropy=T.sum(t_g_1-T.log(t_g_2)+(1-t_g_1)*T.psi(t_g_1)) \
                 +T.sum(t_a-T.log(t_b)+(1-t_a)*T.psi(t_a)) \
+                -T.sum((t_tau-1)*(T.psi(t_tau))-(h_tau-1)*T.psi(h_tau)+(t_tau+h_tau-2)*T.psi(t_tau+h_tau)) \
+                +T.sum(t_c-T.log(t_f)+T.log(t_c)+(1-t_c)*T.psi(t_c)) \
                 -T.sum((J-T.sum(t_xi,1))*T.psi(T.sum(t_xi,1))-T.sum((t_xi-1)*T.psi(t_xi),1)) \
-                +T.sum(t_e_1-T.log(t_e_2)+(1-t_e_1)*T.psi(t_e_1)) \
-                +0.5*D+T.sum(T.log(T.nlinalg.det(2*np.pi*t_l)))
-        
+                +T.sum(t_e_1+T.log(t_e_2*T.gamma(t_e_1))-(1+t_e_1)*T.psi(t_e_1)) \
+                +T.sum(0.5*(T.log(2*np.pi*t_l))+1) \
+                -T.sum((1.0-q_z)*T.log(1.0-q_z)+q_z*T.log(q_z)) \
+                +T.sum(0.5*T.log(2*np.pi*t_s)+1) \
+                +T.sum(zeta)
+                        
         lower_bound=likelihood+entropy
         
         print("LL",likelihood.type)
