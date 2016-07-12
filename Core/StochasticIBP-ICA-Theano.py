@@ -11,13 +11,104 @@ from theano.ifelse import ifelse
 
 class IBP_ICA:
     
-    def __init__(self,dimX, batch_size,lower_bound):
-        self.dimX=dimX
+    def __init__(self,K,N,D,J, batch_size,lower_bound):
+        self.K=K
+        self.N=N
+        self.D=D
+        self.J=J
         self.batch_size=batch_size
         self.lower_bound=lower_bound
     
+    def init_params(self):
+        '''
+        Initialize the parameters to pass to the model
+        '''
+        xi=np.ones((self.K,self.J))*(1.0/self.J)
+        
+        #scalars
+        t_a=1.0
+        t_b=1.0
+        t_g_1=1.0
+        t_g_2=1.0
+        
+        #matrices
+        t_e_1=np.ones((self.K,self.J))
+        t_e_2=np.ones((self.K,self.J))
+        t_xi=np.ones((self.K,self.J))*(1.0/J)
+        t_l=np.random.gamma(1,1,size=(self.D,self.K))
+        t_mu=np.random.normal(0,1,size=(self.D,self.K))
+        omega=np.random.random(size=(D,K))
+        #more sophisticated initialization
+        t_s=np.random.gamma(1,1,size=(N,K))
+        
+        #here to run PCA
+        t_m=np.random.normal(0,1,size=(N,K))
+        
+        #tensor
+        zeta=np.random.random(size=(N,K,J))
+        for i in range(self.N):
+            zeta[i,:,:]/=zeta[i,:,:].sum(1).reshape(-1,1)
+        
+        #tcolumns
+        t_c=np.ones((self.K))
+        t_f=np.ones((self.K))
+        t_tau=np.ones((self.K))
+        h_tau=np.ones((self.K))
+        
+        #the first three are the local params
+        self.params=[t_s,t_m,zeta,t_tau,omega,h_tau,t_a,t_c,t_f,t_g_1,t_g_2,t_e_1,t_e_2,t_xi,t_mu,t_l,t_b]
+        self.xi=xi
     
-    def createGradientFunctions(self,D,K,J,x):
+    def getGradients(self,miniBatch):
+        '''
+        Get the gradients for all the parameters of the model
+        '''
+        total_gradients=[0]*len(self.params)
+        gradients=self.gradientFunction(*(self.params),x=miniBatch,xi=self.xi,K=self.K)
+        self.lower_bound+=gradients[-1]
+        
+        for i in range(len(self.params)):
+            total_gradients[i]+=gradients[i]
+            
+        return total_gradients
+    
+    def updateParams(self,total_gradients, N,current_batch_size,rho):
+        '''
+        Update the global parameters with a gradient step
+        '''
+        
+        for i in range(3,len(self.params)):
+            self.params[i]*=(1.0-rho)
+            if i>10:
+                self.params[i]+=(rho/current_batch_size)*(total_gradients[i].sum(0))
+            else:
+                self.params[i]+=rho*total_gradients[i]
+    
+    
+    def updateLocalParams(self,miniBatch):
+        '''
+        Update the local parameters for the IBP-ICA model until convergence
+        May need some modification here (need to update gradients after calculating something)
+        Maybe make something like local_gradient_function ?
+        '''
+        old_values=self.params[:3]
+        tolerance=10**-5
+        while True:
+            gradients=self.gradientFunction(*(self.params),x=miniBatch,xi=self.xi,K=self.K)
+            self.params[0]=gradients[0]
+            self.params[1]=gradient[1]
+            self.params[2]=gradient[2]
+            if (abs(norm(old_values[0])-norm(self.params[0]))<tolerance):
+                break
+            if (abs(norm(old_values[1])-norm(self.params[1]))<tolerance):
+                break
+            if (abs(norm(old_values[2])-norm(self.params[2]))<tolerance):
+                break
+            
+    def createGradientFunctions(self):
+        '''
+        Create the lower bound and use T.grad to get the gradients for free
+        '''
         
         print("Creating gradient functions...")
         
@@ -31,8 +122,11 @@ class IBP_ICA:
         e_1=T.constant(1.0)
         e_2=T.constant(1.0)
 
-        xi=T.ones((K,J))*(1.0/J)
+        K=T.iscalar('K')
         
+        xi=T.fmatrix('xi')
+        
+        x=T.matrix('x')
         #create the Theano variables
         #tilde_a,tilde_b,tilde_gamma_1 and tilde_gamma_2 are scalars
         t_a,t_b,t_g_1,t_g_2=T.fscalars('t_a','t_b','t_g_1','t_g_2')
@@ -59,7 +153,7 @@ class IBP_ICA:
        
         
         #set the gradient variables
-        gradVariables=[omega,h_tau,t_a,t_b,t_c,t_f,t_g_1,t_g_2,t_e_1,t_e_2,t_m,t_mu,t_l,t_s,t_tau,t_xi,zeta]
+        gradVariables=[t_s,t_m,zeta,t_tau,omega,h_tau,t_a,t_c,t_f,t_g_1,t_g_2,t_e_1,t_e_2,t_xi,t_mu,t_l,t_b]
         
         #some terms for the multinomial bound
         #entropy of q_k        
@@ -144,7 +238,7 @@ class IBP_ICA:
                 +T.sum(t_a-T.log(t_b)+(1-t_a)*T.psi(t_a)) \
                 -T.sum((t_tau-1)*(T.psi(t_tau))-(h_tau-1)*T.psi(h_tau)+(t_tau+h_tau-2)*T.psi(t_tau+h_tau)) \
                 +T.sum(t_c-T.log(t_f)+T.log(t_c)+(1-t_c)*T.psi(t_c)) \
-                -T.sum((J-T.sum(t_xi,1))*T.psi(T.sum(t_xi,1))-T.sum((t_xi-1)*T.psi(t_xi),1)) \
+                -T.sum((T.sum(1-t_xi,1))*T.psi(T.sum(t_xi,1))-T.sum((t_xi-1)*T.psi(t_xi),1)) \
                 +T.sum(t_e_1+T.log(t_e_2*T.gamma(t_e_1))-(1+t_e_1)*T.psi(t_e_1)) \
                 +T.sum(0.5*(T.log(2*np.pi*t_l))+1) \
                 -T.sum((1.0-q_z)*T.log(1.0-q_z)+q_z*T.log(q_z)) \
@@ -163,12 +257,19 @@ class IBP_ICA:
         
         derivatives.append(lower_bound)
         
-        self.gradientFunction=theano.function(gradVariables+[x],derivatives,allow_input_downcast=True)
-        self.lowerBoundFunction=theano.function(gradVariables+[x],lower_bound)
+        self.gradientFunction=theano.function(gradVariables+[xi,x,K],derivatives,allow_input_downcast=True)
+        self.lowerBoundFunction=theano.function(gradVariables+[xi,x,K],lower_bound)
     
 if __name__ == '__main__':
-    z=IBP_ICA(1,10,0)
+    K=5
+    N=100
     D=10
-    K=10
-    J=7
-    z.createGradientFunctions(D,K,J,T.ones((10,10)))
+    J=10
+    S=2000
+    lower_bound=0
+    z=IBP_ICA(K,N,D,J,S,lower_bound)
+    #D=10
+    #K=10
+    #J=7
+    z.init_params()
+    z.createGradientFunctions()
