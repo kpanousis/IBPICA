@@ -60,6 +60,13 @@ class IBP_ICA:
         self.local_params=[t_s,t_m,zeta]
         self.xi=xi
     
+    def feature_update(self):
+        '''
+        Function for using Gibbs sampling to update the number of features.
+        To be implemented today or tomorrow (13-14/07)
+        '''
+        pass
+    
     def getGradients(self,miniBatch):
         '''
         Get the gradients for all the parameters of the model
@@ -225,6 +232,9 @@ class IBP_ICA:
         #calculate likelihood
         #missing term for zeta
     
+        #=======================================================================
+        # modified this a little bit cause we need N times some stuff and not sum over N
+        #=======================================================================
 
         likelihood=g_1*T.log(g_2)+(g_1-1)*(T.psi(t_g_1)-T.log(t_g_2))-g_2*(t_g_1/t_g_2)-T.log(T.gamma(g_1)) \
                     +a*T.log(b)+(a-1)*(T.psi(t_a)-T.log(t_b))-b*(t_a/t_b)-T.log(T.gamma(a)) \
@@ -238,7 +248,7 @@ class IBP_ICA:
                     +T.sum(0.5*T.log(2*np.pi)+0.5*zeta*(T.psi(t_e_1)-T.log(t_e_2)-(t_m**2+t_s)*(t_e_1/t_e_2))) \
                     +T.sum(-0.5*T.log(2*np.pi)-0.5*(T.psi(t_a)-T.log(t_b)) \
                            -0.5*(T.dot(T.transpose(x), x)-T.dot(T.dot(x,t_mu),t_m.T)\
-                                 -T.dot(T.dot(t_m,T.transpose(t_mu)),x.T)+T.dot(T.dot(t_m,T.nlinalg.trace(t_l)+T.dot(T.transpose(t_mu),t_mu)),t_m.T))*(t_b/(t_a-1)))
+                                 -T.dot(T.dot(t_m,T.transpose(t_mu)),x.T)+T.dot(T.dot(t_m,T.nlinalg.trace(t_l)+T.dot(T.transpose(t_mu),t_mu)),(t_m**2+t_s)))*(t_b/(t_a-1)))
                     
         entropy=T.sum(t_g_1-T.log(t_g_2)+(1-t_g_1)*T.psi(t_g_1)) \
                 +T.sum(t_a-T.log(t_b)+(1-t_a)*T.psi(t_a)) \
