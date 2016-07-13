@@ -50,13 +50,14 @@ class IBP_ICA:
             zeta[i,:,:]/=zeta[i,:,:].sum(1).reshape(-1,1)
         
         #tcolumns
-        t_c=np.ones((self.K))
-        t_f=np.ones((self.K))
-        t_tau=np.ones((self.K))
-        h_tau=np.ones((self.K))
+        t_c=np.ones((self.K,1))
+        t_f=np.ones((self.K,1))
+        t_tau=np.ones((self.K,1))
+        h_tau=np.ones((self.K,1))
         
         #the first three are the local params
-        self.params=[t_s,t_m,zeta,t_tau,omega,h_tau,t_a,t_c,t_f,t_g_1,t_g_2,t_e_1,t_e_2,t_xi,t_mu,t_l,t_b]
+        self.params=[t_tau,omega,h_tau,t_a,t_c,t_f,t_g_1,t_g_2,t_e_1,t_e_2,t_xi,t_mu,t_l,t_b]
+        self.local_params=[t_s,t_m,zeta]
         self.xi=xi
     
     def getGradients(self,miniBatch):
@@ -65,45 +66,61 @@ class IBP_ICA:
         '''
         total_gradients=[0]*len(self.params)
         gradients=self.gradientFunction(*(self.params),x=miniBatch,xi=self.xi,K=self.K)
+        gradients_local=self.localGradientFunction(*(self.local_params),x=miniBatch,xi=self.xi,K=self.K)
         self.lower_bound+=gradients[-1]
         
-        for i in range(len(self.params)):
-            total_gradients[i]+=gradients[i]
+#         for i in range(len(self.params)):
+#             total_gradients[i]+=gradients[i]
             
-        return total_gradients
+        return gradients_local,gradients
     
-    def updateParams(self,total_gradients, N,current_batch_size,rho):
+    def updateParams(self,total_gradients,current_batch_size,rho):
         '''
         Update the global parameters with a gradient step
         '''
         
-        for i in range(3,len(self.params)):
+        for i in range(len(self.params)):
             self.params[i]*=(1.0-rho)
-            if i>10:
+            if i>7:
                 self.params[i]+=(rho/current_batch_size)*(total_gradients[i].sum(0))
             else:
                 self.params[i]+=rho*total_gradients[i]
     
     
+    def iterate(self,miniBatch,rho):
+        '''
+        Function that represents one iteration of the SVI IBP ICA algorithm
+        '''
+        self.updateLocalParams(miniBatch)
+        _,gradients=self.getGradients(miniBatch)
+        self.updateParams(gradients, len(miniBatch), rho)
+    
+
+    def getLowerBound(self,data):
+        lower_bound=self.lowerBoundFunction(*(self.local_params+self.params),xi=self.xi,K=self.K,x=data)    
+        return lower_bound
+            
     def updateLocalParams(self,miniBatch):
         '''
         Update the local parameters for the IBP-ICA model until convergence
         May need some modification here (need to update gradients after calculating something)
         Maybe make something like local_gradient_function ?
         '''
-        old_values=self.params[:3]
+        old_values=self.local_params
         tolerance=10**-5
         while True:
-            gradients=self.gradientFunction(*(self.params),x=miniBatch,xi=self.xi,K=self.K)
-            self.params[0]=gradients[0]
-            self.params[1]=gradient[1]
-            self.params[2]=gradient[2]
-            if (abs(norm(old_values[0])-norm(self.params[0]))<tolerance):
-                break
-            if (abs(norm(old_values[1])-norm(self.params[1]))<tolerance):
-                break
-            if (abs(norm(old_values[2])-norm(self.params[2]))<tolerance):
-                break
+            gradients=self.localGradientFunction(*(self.local_params+self.params),x=miniBatch,xi=self.xi,K=self.K)
+            self.local_params[0]=gradients[0]
+            gradients=self.localGradientFunction(*(self.local_params+self.params),x=miniBatch,xi=self.xi,K=self.K)
+            self.local_params[1]=gradients[1]
+            gradients=self.localGradientFunction(*(self.local_params+self.params),x=miniBatch,xi=self.xi,K=self.K)
+            self.local_params[2]=gradients[2]
+            
+            #check convergence
+            if (abs(norm(old_values[0])-norm(self.local_params[0]))<tolerance):
+                if (abs(norm(old_values[1])-norm(self.local_params[1]))<tolerance):
+                    if (abs(norm(old_values[2])-norm(self.local_params[2]))<tolerance):
+                        break
             
     def createGradientFunctions(self):
         '''
@@ -153,28 +170,28 @@ class IBP_ICA:
        
         
         #set the gradient variables
-        gradVariables=[t_s,t_m,zeta,t_tau,omega,h_tau,t_a,t_c,t_f,t_g_1,t_g_2,t_e_1,t_e_2,t_xi,t_mu,t_l,t_b]
+        #gradVariables=[t_s,t_m,zeta,t_tau,omega,h_tau,t_a,t_c,t_f,t_g_1,t_g_2,t_e_1,t_e_2,t_xi,t_mu,t_l,t_b]
         
         #some terms for the multinomial bound
         #entropy of q_k        
         q_k_entropy=T.sum(q_k*T.log(q_k))
-        print("entropy", q_k_entropy.type)
+        #print("entropy", q_k_entropy.type)
         f_sum=T.cumsum(q_k*T.psi(h_tau))
-        print("f_sum",f_sum.type)
+        #print("f_sum",f_sum.type)
         sum_m_plus_one_k=T.cumsum(q_k)
-        print("sum_plus_one_type",sum_m_plus_one_k.type)
+        #print("sum_plus_one_type",sum_m_plus_one_k.type)
         
-        print("q_k",q_k.type)
+        #print("q_k",q_k.type)
         #=======================================================================
         # Nested scan for the calculation of the multinomial bound
         #=======================================================================
         def oneStep(s_index,curr,tau,q_k,k,add_index):
-            print("s_index",s_index.type)
-            print("tau",tau.type)
-            print("tau[s]",tau[s_index,1].type)
-            print("curr",curr.type)
-            print("qk",q_k.type)
-            print((curr+T.psi(tau[s_index,1])*T.sum(q_k[s_index+add_index:k+1])).type)
+#             print("s_index",s_index.type)
+#             print("tau",tau.type)
+#             print("tau[s]",tau[s_index,1].type)
+#             print("curr",curr.type)
+#             print("qk",q_k.type)
+#             print((curr+T.psi(tau[s_index,1])*T.sum(q_k[s_index+add_index:k+1])).type)
             return ifelse(T.gt(k,0),curr+T.psi(tau[s_index,1])*T.sum(q_k[s_index+add_index:k+1]),curr+T.constant(0).astype('float32'))
         
         def inner_loop(k,tau,q_k,add_index):
@@ -210,10 +227,10 @@ class IBP_ICA:
                                       n_steps=K)
         #the multinomial bound for calculating p(z_{dk}|\upsilon_k)
         #WTF
-        print("sec",sec_sum.type)
-        print("thrd",third_sum.type)
+        #print("sec",sec_sum.type)
+        #print("thrd",third_sum.type)
         mult_bound=T.cumsum(q_k*T.psi(h_tau))+sec_sum+third_sum-T.cumsum(q_k*T.log(q_k))
-        print("Mult_bound",mult_bound.type)
+        #print("Mult_bound",mult_bound.type)
         #calculate q(z_{dk}=1)
         q_z=1.0/(1.0+T.exp(-omega))
         
@@ -247,18 +264,34 @@ class IBP_ICA:
                         
         lower_bound=likelihood+entropy
         
-        print("LL",likelihood.type)
-        print("E",entropy.type)
-        print("lowerbound",lower_bound.type)
+        #print("LL",likelihood.type)
+        #print("E",entropy.type)
+        #print("lowerbound",lower_bound.type)
         #gradVariables=t_e_1
+        
+        #=======================================================================
+        # set local and global gradient variables
+        #=======================================================================
+        gradVariables=[t_tau,omega,h_tau,t_a,t_c,t_f,t_g_1,t_g_2,t_e_1,t_e_2,t_xi,t_mu,t_l,t_b]
+        localVar=[t_s,t_m,zeta]
+        
+        #=======================================================================
+        # calculate the derivatives
+        #=======================================================================
         derivatives=T.grad(lower_bound,gradVariables)
-        #from theano import pp
-        #print(pp(derivatives))
+        derivatives_local=T.grad(lower_bound,localVar)
+       
         
         derivatives.append(lower_bound)
         
-        self.gradientFunction=theano.function(gradVariables+[xi,x,K],derivatives,allow_input_downcast=True)
-        self.lowerBoundFunction=theano.function(gradVariables+[xi,x,K],lower_bound)
+        self.gradientFunction=theano.function(localVar+gradVariables+[xi,x,K],derivatives,allow_input_downcast=True)
+        self.localGradientFunction=theano.function(localVar+gradVariables+[xi,x,K],derivatives,allow_input_downcast=True)
+        self.lowerBoundFunction=theano.function(localVar+gradVariables+[xi,x,K],lower_bound)
+    
+    def create_synthetic_data(self):
+        G=np.random.normal(size=(self.D,self.K))
+        y=np.random.normal(size=(self.K,self.N))
+        return np.dot(G,y),G,y
     
 if __name__ == '__main__':
     K=5
@@ -267,9 +300,27 @@ if __name__ == '__main__':
     J=10
     S=2000
     lower_bound=0
+    
     z=IBP_ICA(K,N,D,J,S,lower_bound)
-    #D=10
-    #K=10
-    #J=7
+    
+    x,G,y=z.create_synthetic_data()
+    
     z.init_params()
     z.createGradientFunctions()
+    i=1
+    LL=[]
+    
+    #sample the data 
+    random_indices=np.random.randint(0,len(x),S)
+    miniBatch=x[random_indices,:]
+    
+    while True:
+        
+        rho=(i+1.0)**(-.75)
+        i+=1
+        
+        z.lower_bound=0
+        z.iterate(miniBatch,rho)
+        break
+        
+    
