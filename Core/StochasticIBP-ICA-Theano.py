@@ -8,12 +8,12 @@ import theano.tensor as T
 import numpy as np
 import time
 from theano.ifelse import ifelse
+theano.config.exception_verbosity='high'
 
 class IBP_ICA:
     
-    def __init__(self,K,N,D,J, batch_size,lower_bound):
+    def __init__(self,K,D,J, batch_size,lower_bound):
         self.K=K
-        self.N=N
         self.D=D
         self.J=J
         self.batch_size=batch_size
@@ -37,16 +37,16 @@ class IBP_ICA:
         t_xi=np.ones((self.K,self.J))*(1.0/J)
         t_l=np.random.gamma(1,1,size=(self.D,self.K))
         t_mu=np.random.normal(0,1,size=(self.D,self.K))
-        omega=np.random.random(size=(D,K))
+        omega=np.random.random(size=(self.D,self.K))
         #more sophisticated initialization
-        t_s=np.random.gamma(1,1,size=(N,K))
+        t_s=np.random.gamma(1,1,size=(self.batch_size,self.K))
         
         #here to run PCA
-        t_m=np.random.normal(0,1,size=(N,K))
+        t_m=np.random.normal(0,1,size=(self.batch_size,self.K))
         
         #tensor
-        zeta=np.random.random(size=(N,K,J))
-        for i in range(self.N):
+        zeta=np.random.random(size=(self.batch_size,self.K,self.J))
+        for i in range(self.batch_size):
             zeta[i,:,:]/=zeta[i,:,:].sum(1).reshape(-1,1)
         
         #tcolumns
@@ -65,8 +65,8 @@ class IBP_ICA:
         Get the gradients for all the parameters of the model
         '''
         total_gradients=[0]*len(self.params)
-        gradients=self.gradientFunction(*(self.params),x=miniBatch,xi=self.xi,K=self.K)
-        gradients_local=self.localGradientFunction(*(self.local_params),x=miniBatch,xi=self.xi,K=self.K)
+        gradients=self.gradientFunction(*(self.local_params+self.params),x=miniBatch,xi=self.xi,K=self.K)
+        gradients_local=self.localGradientFunction(*(self.local_params+self.params),x=miniBatch,xi=self.xi,K=self.K)
         self.lower_bound+=gradients[-1]
         
 #         for i in range(len(self.params)):
@@ -168,63 +168,51 @@ class IBP_ICA:
         
         q_k/=T.sum(q_k)
        
-        
-        #set the gradient variables
-        #gradVariables=[t_s,t_m,zeta,t_tau,omega,h_tau,t_a,t_c,t_f,t_g_1,t_g_2,t_e_1,t_e_2,t_xi,t_mu,t_l,t_b]
-        
+                
         #some terms for the multinomial bound
         #entropy of q_k        
         q_k_entropy=T.sum(q_k*T.log(q_k))
-        #print("entropy", q_k_entropy.type)
         f_sum=T.cumsum(q_k*T.psi(h_tau))
-        #print("f_sum",f_sum.type)
         sum_m_plus_one_k=T.cumsum(q_k)
-        #print("sum_plus_one_type",sum_m_plus_one_k.type)
         
-        #print("q_k",q_k.type)
+        
         #=======================================================================
         # Nested scan for the calculation of the multinomial bound
         #=======================================================================
         def oneStep(s_index,curr,tau,q_k,k,add_index):
-#             print("s_index",s_index.type)
-#             print("tau",tau.type)
-#             print("tau[s]",tau[s_index,1].type)
-#             print("curr",curr.type)
-#             print("qk",q_k.type)
-#             print((curr+T.psi(tau[s_index,1])*T.sum(q_k[s_index+add_index:k+1])).type)
-            return ifelse(T.gt(k,0),curr+T.psi(tau[s_index,1])*T.sum(q_k[s_index+add_index:k+1]),curr+T.constant(0).astype('float32'))
+            zero=T.constant(0).astype('int64')
+            return ifelse(T.gt(k,zero),curr+T.psi(tau[s_index,0])*T.sum(q_k[s_index+add_index:k+1]),curr+T.constant(0).astype('float32'))
         
         def inner_loop(k,tau,q_k,add_index):
-            #my_tau=tau[:k+add_index]
-            #my_q=q_k[:k+1]
+          
             zero=T.constant(0).astype('int64')
 
-            s_indices=ifelse(T.gt(k,zero),T.arange(k),T.arange(-1,0))
+            s_indices=ifelse(T.gt(k,zero),T.arange(k),T.arange(0,1))
 
             n_steps=ifelse(T.gt(k-add_index,zero),k-add_index,T.constant(1).astype('int64'))
 
             outputs,_=theano.scan(fn=oneStep,
                                         sequences=s_indices,
-                                        outputs_info=T.constant(0.),
+                                        outputs_info=T.constant(.0),
                                         non_sequences=[tau,q_k,k,add_index],
-                                        n_steps=n_steps)
-            print("outputs",outputs.type)
+                                        )
+            #print("outputs",outputs.type)
             outputs=outputs[-1]
             return outputs
-
+        
         start_slices=T.arange(K)
         add_index=T.constant(1).astype(('int64'))
         sec_sum,updates=theano.scan(fn=inner_loop,
                                       sequences=start_slices,
                                       non_sequences=[t_tau,q_k,add_index],
-                                      n_steps=K)
+                                      )
         
         #all I need to change for the second sum are the indices
         add_index_zero=T.constant(0).astype('int64')
         third_sum,up=theano.scan(fn=inner_loop,
                                       sequences=[start_slices],
                                       non_sequences=[t_tau,q_k,add_index_zero],
-                                      n_steps=K)
+                                      )
         #the multinomial bound for calculating p(z_{dk}|\upsilon_k)
         #WTF
         #print("sec",sec_sum.type)
@@ -249,7 +237,8 @@ class IBP_ICA:
                     +T.sum(zeta*(T.psi(t_xi)-T.psi(T.sum(t_xi,1))))\
                     +T.sum(0.5*T.log(2*np.pi)+0.5*zeta*(T.psi(t_e_1)-T.log(t_e_2)-(t_m**2+t_s)*(t_e_1/t_e_2))) \
                     +T.sum(-0.5*T.log(2*np.pi)-0.5*(T.psi(t_a)-T.log(t_b)) \
-                           -0.5*(T.dot(T.transpose(x), x)-T.dot(T.dot(T.transpose(x),T.transpose(t_mu)),t_m)-T.dot(T.dot(T.transpose(t_m),T.transpose(t_mu)),x)+T.dot(T.dot(T.transpose(t_m),T.nlinalg.trace(t_l)+T.dot(T.transpose(t_mu),t_mu)),t_m))*(t_b/(t_a-1)))
+                           -0.5*(T.dot(T.transpose(x), x)-T.dot(T.dot(x,t_mu),t_m.T)\
+                                 -T.dot(T.dot(t_m,T.transpose(t_mu)),x.T)+T.dot(T.dot(t_m,T.nlinalg.trace(t_l)+T.dot(T.transpose(t_mu),t_mu)),t_m.T))*(t_b/(t_a-1)))
                     
         entropy=T.sum(t_g_1-T.log(t_g_2)+(1-t_g_1)*T.psi(t_g_1)) \
                 +T.sum(t_a-T.log(t_b)+(1-t_a)*T.psi(t_a)) \
@@ -285,25 +274,25 @@ class IBP_ICA:
         derivatives.append(lower_bound)
         
         self.gradientFunction=theano.function(localVar+gradVariables+[xi,x,K],derivatives,allow_input_downcast=True)
-        self.localGradientFunction=theano.function(localVar+gradVariables+[xi,x,K],derivatives,allow_input_downcast=True)
+        self.localGradientFunction=theano.function(localVar+gradVariables+[xi,x,K],derivatives_local,allow_input_downcast=True)
         self.lowerBoundFunction=theano.function(localVar+gradVariables+[xi,x,K],lower_bound)
     
-    def create_synthetic_data(self):
+    def create_synthetic_data(self,N):
         G=np.random.normal(size=(self.D,self.K))
-        y=np.random.normal(size=(self.K,self.N))
-        return np.dot(G,y),G,y
+        y=np.random.normal(size=(self.K,N))
+        return np.dot(G,y).T,G,y
     
 if __name__ == '__main__':
     K=5
-    N=100
+    N=10000
     D=10
     J=10
     S=2000
     lower_bound=0
     
-    z=IBP_ICA(K,N,D,J,S,lower_bound)
+    z=IBP_ICA(K,D,J,S,lower_bound)
     
-    x,G,y=z.create_synthetic_data()
+    x,G,y=z.create_synthetic_data(N)
     
     z.init_params()
     z.createGradientFunctions()
