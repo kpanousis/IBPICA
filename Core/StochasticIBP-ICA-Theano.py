@@ -256,7 +256,17 @@ class IBP_ICA:
         #=======================================================================
         # modified this a little bit cause we need N times some stuff and not sum over N
         #=======================================================================
+        def normalCalc(x_n,t_m_n,t_s_n,curr,t_mu,t_l,t_b,t_a):
+            time.sleep(2)
+            return curr-0.5*(t_b/(t_a-1))*(T.dot(x_n.T, x_n)-T.dot(T.dot(x_n.T,t_mu),t_m_n)-T.dot(T.dot(t_m_n.T,t_mu),x_n)+T.dot(T.dot(t_m_n.T,(t_l+T.dot(t_mu.T,t_mu))),t_m_n))
+        
 
+        last_term,_=theano.scan(fn=normalCalc,
+                                sequences=[x,t_m,t_s],
+                                outputs_info=T.constant(.0).astype('float64'),
+                                non_sequences=[t_mu,t_l,t_b,t_a])
+        last_term=last_term[-1]
+        
         likelihood=g_1*T.log(g_2)+(g_1-1)*(T.psi(t_g_1)-T.log(t_g_2))-g_2*(t_g_1/t_g_2)-T.log(T.gamma(g_1)) \
                     +a*T.log(b)+(a-1)*(T.psi(t_a)-T.log(t_b))-b*(t_a/t_b)-T.log(T.gamma(a)) \
                     +T.sum(-T.psi(t_g_1)+T.log(t_g_2)+(t_g_1/t_g_2-1)*(T.psi(t_tau)-T.psi(t_tau+h_tau))) \
@@ -267,9 +277,8 @@ class IBP_ICA:
                     +T.sum(q_z*T.cumsum(T.psi(h_tau)-T.psi(t_tau+h_tau))+(1.0-q_z)*mult_bound)\
                     +T.sum(zeta*(T.psi(t_xi)-T.psi(T.sum(t_xi,1))))\
                     +T.sum(0.5*T.log(2*np.pi)+0.5*zeta*(T.psi(t_e_1)-T.log(t_e_2)-(t_m**2+t_s)*(t_e_1/t_e_2))) \
-                    +T.sum(-0.5*T.log(2*np.pi)-0.5*(T.psi(t_a)-T.log(t_b)) \
-                           -0.5*(T.dot(T.transpose(x), x)-T.dot(T.dot(x,t_mu),t_m.T)\
-                                 -T.dot(T.dot(t_m,T.transpose(t_mu)),x.T)+T.dot(T.dot(t_m,T.nlinalg.trace(t_l)+T.dot(T.transpose(t_mu),t_mu)),(t_m**2+t_s   )))*(t_b/(t_a-1)))
+                    +T.sum(-0.5*T.log(2*np.pi)-0.5*(T.psi(t_a)-T.log(t_b))) \
+                          +last_term
                     
         entropy=T.sum(t_g_1-T.log(t_g_2)+(1-t_g_1)*T.psi(t_g_1)) \
                 +T.sum(t_a-T.log(t_b)+(1-t_a)*T.psi(t_a)) \
@@ -320,23 +329,23 @@ if __name__ == '__main__':
     K=5
     N=10000
     D=10
-    J=10
+    J=8
     S=2000
     lower_bound=0
     
     z=IBP_ICA(K,D,J,S,lower_bound)
     
     x,G,y=z.create_synthetic_data(N)
-    
+        #sample the data 
+    random_indices=np.random.randint(0,len(x),S)
+    miniBatch=x[random_indices,:]
+        
     z.init_params()
     z.createGradientFunctions()
     i=1
     LL=[]
     
-    #sample the data 
-    random_indices=np.random.randint(0,len(x),S)
-    miniBatch=x[random_indices,:]
-    
+
     while True:
         
         rho=(i+1.0)**(-.75)
