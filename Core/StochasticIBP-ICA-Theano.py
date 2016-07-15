@@ -256,9 +256,8 @@ class IBP_ICA:
         #=======================================================================
         # modified this a little bit cause we need N times some stuff and not sum over N
         #=======================================================================
-        def normalCalc(x_n,t_m_n,t_s_n,curr,t_mu,t_l,t_b,t_a):
-            time.sleep(2)
-            return curr-0.5*(t_b/(t_a-1))*(T.dot(x_n.T, x_n)-T.dot(T.dot(x_n.T,t_mu),t_m_n)-T.dot(T.dot(t_m_n.T,t_mu),x_n)+T.dot(T.dot(t_m_n.T,(t_l+T.dot(t_mu.T,t_mu))),t_m_n))
+        def normalCalc(x_n,t_m_n,t_s_n,curr,t_mu,t_l,t_b,t_a):            
+            return curr-0.5*(t_b/(t_a-1))*(T.dot(x_n, x_n.T)-2*T.dot(T.dot(t_m_n.T,t_mu.T),t_m_n)+T.sum(T.dot((t_m_n**2+t_s_n).T,t_l+T.dot(t_mu.T,t_mu))))
         
 
         last_term,_=theano.scan(fn=normalCalc,
@@ -277,7 +276,7 @@ class IBP_ICA:
                     +T.sum(q_z*T.cumsum(T.psi(h_tau)-T.psi(t_tau+h_tau))+(1.0-q_z)*mult_bound)\
                     +T.sum(zeta*(T.psi(t_xi)-T.psi(T.sum(t_xi,1))))\
                     +T.sum(0.5*T.log(2*np.pi)+0.5*zeta*(T.psi(t_e_1)-T.log(t_e_2)-(t_m**2+t_s)*(t_e_1/t_e_2))) \
-                    +T.sum(-0.5*T.log(2*np.pi)-0.5*(T.psi(t_a)-T.log(t_b))) \
+                    +T.sum(-0.5*T.log(2*np.pi)+0.5*(T.psi(t_a)-T.log(t_b))) \
                           +last_term
                     
         entropy=T.sum(t_g_1-T.log(t_g_2)+(1-t_g_1)*T.psi(t_g_1)) \
