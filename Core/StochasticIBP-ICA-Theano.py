@@ -9,6 +9,8 @@ import numpy as np
 import time
 from theano.ifelse import ifelse
 theano.config.exception_verbosity='high'
+theano.config.optimizer='None'
+theano.config.traceback.limit=20
 
 class IBP_ICA:
     
@@ -257,7 +259,7 @@ class IBP_ICA:
         # modified this a little bit cause we need N times some stuff and not sum over N
         #=======================================================================
         def normalCalc(x_n,t_m_n,t_s_n,curr,t_mu,t_l,t_b,t_a):            
-            return curr-0.5*(t_b/(t_a-1))*(T.dot(x_n, x_n.T)-2*T.dot(T.dot(t_m_n.T,t_mu.T),t_m_n)+T.sum(T.dot((t_m_n**2+t_s_n).T,t_l+T.dot(t_mu.T,t_mu))))
+            return curr-0.5*(t_b/(t_a-1))*(T.dot(x_n, x_n.T)-2*T.dot(T.dot(t_m_n.T,t_mu.T),x_n)+T.sum(T.dot((t_m_n**2+t_s_n).T,(t_l+T.dot(t_mu.T,t_mu)).T)))
         
 
         last_term,_=theano.scan(fn=normalCalc,
@@ -270,12 +272,12 @@ class IBP_ICA:
                     +a*T.log(b)+(a-1)*(T.psi(t_a)-T.log(t_b))-b*(t_a/t_b)-T.log(T.gamma(a)) \
                     +T.sum(-T.psi(t_g_1)+T.log(t_g_2)+(t_g_1/t_g_2-1)*(T.psi(t_tau)-T.psi(t_tau+h_tau))) \
                     +T.sum(c*T.log(f)+(c-1)*(T.psi(t_c)-T.log(t_f))-f*(t_c/t_f)-T.log(T.gamma(c))) \
-                    +T.sum(T.sum((xi-1)*(T.psi(t_xi)-T.psi(T.sum(t_xi,1))),1)) \
+                    +T.sum((xi-1)*(T.psi(t_xi)-(T.psi(T.sum(t_xi,1))).dimshuffle(0, 'x'))) \
                     +T.sum(e_1*T.log(e_2)-(e_1+1)*(T.log(t_e_2)-T.psi(t_e_1))-e_2*(t_e_1/t_e_2))-T.gamma(e_1) \
-                    +T.sum(0.5*T.log(2*np.pi)+0.5*(T.psi(t_c)-T.log(t_f))-0.5*(t_mu**2+t_l)*(t_c/t_f)) \
+                    +T.sum(0.5*(T.psi(t_c)-T.log(t_f)))-0.5*T.sum(T.dot(t_mu**2+t_l,t_c/t_f)) \
                     +T.sum(q_z*T.cumsum(T.psi(h_tau)-T.psi(t_tau+h_tau))+(1.0-q_z)*mult_bound)\
-                    +T.sum(zeta*(T.psi(t_xi)-T.psi(T.sum(t_xi,1))))\
-                    +T.sum(0.5*T.log(2*np.pi)+0.5*zeta*(T.psi(t_e_1)-T.log(t_e_2)-(t_m**2+t_s)*(t_e_1/t_e_2))) \
+                    +T.sum(zeta*(T.psi(t_xi)-T.psi(T.sum(t_xi,1)).dimshuffle(0,'x')))\
+                    +0.5*T.sum(zeta*(T.psi(t_e_1)-T.log(t_e_2)))-0.5*T.sum(T.sum(zeta*(t_e_1/t_e_2),2)*(t_m**2+t_s)) \
                     +T.sum(-0.5*T.log(2*np.pi)+0.5*(T.psi(t_a)-T.log(t_b))) \
                           +last_term
                     
@@ -283,12 +285,12 @@ class IBP_ICA:
                 +T.sum(t_a-T.log(t_b)+(1-t_a)*T.psi(t_a)) \
                 -T.sum((t_tau-1)*(T.psi(t_tau))-(h_tau-1)*T.psi(h_tau)+(t_tau+h_tau-2)*T.psi(t_tau+h_tau)) \
                 +T.sum(t_c-T.log(t_f)+T.log(t_c)+(1-t_c)*T.psi(t_c)) \
-                -T.sum((T.sum(1-t_xi,1))*T.psi(T.sum(t_xi,1))-T.sum((t_xi-1)*T.psi(t_xi),1)) \
+                -T.sum((T.sum(1.0-t_xi,1)*T.psi(T.sum(t_xi,1))))-T.sum(T.sum((t_xi-1.0)*T.psi(t_xi),1)) \
                 +T.sum(t_e_1+T.log(t_e_2*T.gamma(t_e_1))-(1+t_e_1)*T.psi(t_e_1)) \
                 +T.sum(0.5*(T.log(2*np.pi*t_l))+1) \
                 -T.sum((1.0-q_z)*T.log(1.0-q_z)+q_z*T.log(q_z)) \
                 +T.sum(0.5*T.log(2*np.pi*t_s)+1) \
-                +T.sum(zeta)
+                +T.sum(zeta*T.log(zeta))
                         
         lower_bound=likelihood+entropy
         
