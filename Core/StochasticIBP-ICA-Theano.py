@@ -7,6 +7,8 @@ import theano
 import theano.tensor as T
 import numpy as np
 import time
+from numpy.linalg import norm
+from numpy import newaxis
 from theano.ifelse import ifelse
 theano.config.exception_verbosity='high'
 theano.config.optimizer='None'
@@ -20,6 +22,7 @@ class IBP_ICA:
         self.J=J
         self.batch_size=batch_size
         self.lower_bound=lower_bound
+        self.likelihood=0
     
     def init_params(self):
         '''
@@ -28,7 +31,7 @@ class IBP_ICA:
         xi=np.ones((self.K,self.J))*(1.0/self.J)
         
         #scalars
-        t_a=1.0
+        t_a=2.0
         t_b=1.0
         t_g_1=1.0
         t_g_2=1.0
@@ -85,20 +88,21 @@ class IBP_ICA:
     
     def getBatchGradients(self,miniBatch,s):
         
-        t_s=self.params[0][s,:].reshape(1,-1)
-        t_s=np.repeat(t_s,s,axis=0)
+        t_s=self.local_params[0][s,:].reshape(1,-1)
+        t_s=np.repeat(t_s,len(miniBatch),axis=0)
         
-        t_m=self.params[1][s,:].reshape(1,-1)
-        t_m=np.repeat(t_m,s,axis=0)
+        t_m=self.local_params[1][s,:].reshape(1,-1)
+        t_m=np.repeat(t_m,len(miniBatch),axis=0)
         
         #stack the same elements to get the N*zeta_{skj}
         zeta=self.local_params[2][s,:,:]
         zeta=zeta[newaxis,:,:]
         zeta=np.repeat(zeta, len(miniBatch),axis=0)
         
+        
         #get only the elements associated with the sth observation
         local_params=[t_s,t_m,zeta]
-        batch_gradients=self.batchGradientFunction(*(local_params+self.params+self.batch_params),x=minibatch[s,:],xi=self.xi,K=self.K)
+        batch_gradients=self.batchGradientFunction(*(local_params+self.params+self.batch_params),x=miniBatch[s,:].reshape(1,-1),xi=self.xi,K=self.K)
         
         return batch_gradients
         
@@ -106,7 +110,7 @@ class IBP_ICA:
         '''
         Update the global parameters with a gradient step
         '''
-        
+        print("Updating Global Parameters...")
         for i in range(len(self.params)):
             self.params[i]*=(1.0-rho)
             self.params[i]+=rho*gradients[i]
@@ -119,7 +123,7 @@ class IBP_ICA:
         Function that represents one iteration of the SVI IBP ICA algorithm
         '''
         self.updateLocalParams(miniBatch)
-        _,gradients=self.getGradients(miniBatch)
+        gradients=self.getGradients(miniBatch)
         batch_gradients=[0]*len(self.batch_params)
         for s in range(len(miniBatch)):
             batch_gradients+=self.getBatchGradients(miniBatch, s)
@@ -129,23 +133,34 @@ class IBP_ICA:
     def getLowerBound(self,data):
         lower_bound=self.lowerBoundFunction(*(self.local_params+self.params+self.batch_params),xi=self.xi,K=self.K,x=data)    
         return lower_bound
-            
+    
+    
+    def getLowerBoundterms(self,data):
+        likelihood=self.likelihoodFunction(*(self.local_params+self.params+self.batch_params),xi=self.xi,K=self.K,x=data)
+        entropy=self.entropyFunction(*(self.local_params+self.params+self.batch_params))
+
+        return likelihood,entropy
+    
     def updateLocalParams(self,miniBatch):
         '''
         Update the local parameters for the IBP-ICA model until convergence
         May need some modification here (need to update gradients after calculating something)
         Maybe make something like local_gradient_function ?
         '''
+        print("Updating local parameters...")
         old_values=self.local_params
         tolerance=10**-5
         while True:
             gradients=self.localGradientFunction(*(self.local_params+self.params+self.batch_params),x=miniBatch,xi=self.xi,K=self.K)
             self.local_params[0]=gradients[0]
+            print(gradients[0])
             gradients=self.localGradientFunction(*(self.local_params+self.params+self.batch_params),x=miniBatch,xi=self.xi,K=self.K)
             self.local_params[1]=gradients[1]
+            print(gradients[1])
             gradients=self.localGradientFunction(*(self.local_params+self.params+self.batch_params),x=miniBatch,xi=self.xi,K=self.K)
             self.local_params[2]=gradients[2]
             
+            print(abs(norm(old_values[0])-norm(self.local_params[0])))
             #check convergence
             if (abs(norm(old_values[0])-norm(self.local_params[0]))<tolerance):
                 if (abs(norm(old_values[1])-norm(self.local_params[1]))<tolerance):
@@ -160,14 +175,14 @@ class IBP_ICA:
         print("Creating gradient functions...")
         
         print("Initializing prior parameters...")
-        a=T.constant(1.0)
-        b=T.constant(1.0)
-        c=T.constant(1.0)
-        f=T.constant(1.0)
-        g_1=T.constant(1.0)
-        g_2=T.constant(1.0)
-        e_1=T.constant(1.0)
-        e_2=T.constant(1.0)
+        a=T.constant(2.0)
+        b=T.constant(2.0)
+        c=T.constant(2.0)
+        f=T.constant(2.0)
+        g_1=T.constant(2.0)
+        g_2=T.constant(2.0)
+        e_1=T.constant(2.0)
+        e_2=T.constant(2.0)
 
         K=T.iscalar('K')
         
@@ -245,21 +260,19 @@ class IBP_ICA:
                                       )
         #the multinomial bound for calculating p(z_{dk}|\upsilon_k)
         #WTF
-        #print("sec",sec_sum.type)
-        #print("thrd",third_sum.type)
+
+
         mult_bound=T.cumsum(q_k*T.psi(h_tau))+sec_sum+third_sum-T.cumsum(q_k*T.log(q_k))
-        #print("Mult_bound",mult_bound.type)
+
         #calculate q(z_{dk}=1)
         q_z=1.0/(1.0+T.exp(-omega))
         
-        #calculate likelihood
-        #missing term for zeta
     
         #=======================================================================
-        # modified this a little bit cause we need N times some stuff and not sum over N
+        # calculation of the weird last term
         #=======================================================================
         def normalCalc(x_n,t_m_n,t_s_n,curr,t_mu,t_l,t_b,t_a):            
-            return curr-0.5*(t_b/(t_a-1))*(T.dot(x_n, x_n.T)-2*T.dot(T.dot(t_m_n.T,t_mu.T),x_n)+T.sum(T.dot((t_m_n**2+t_s_n).T,(t_l+T.dot(t_mu.T,t_mu)).T)))
+            return curr-0.5*(t_b/(t_a-1))*(T.dot(x_n, x_n.T)-2*T.dot(T.dot(t_m_n.T,t_mu.T),x_n)+T.sum(T.dot((t_m_n**2+t_s_n).T,(t_l+T.diag(T.dot(t_mu.T,t_mu))).T)))
         
 
         last_term,_=theano.scan(fn=normalCalc,
@@ -268,36 +281,40 @@ class IBP_ICA:
                                 non_sequences=[t_mu,t_l,t_b,t_a])
         last_term=last_term[-1]
         
+        #=======================================================================
+        # calculate the likelihood term 
+        #=======================================================================
+        
         likelihood=g_1*T.log(g_2)+(g_1-1)*(T.psi(t_g_1)-T.log(t_g_2))-g_2*(t_g_1/t_g_2)-T.log(T.gamma(g_1)) \
                     +a*T.log(b)+(a-1)*(T.psi(t_a)-T.log(t_b))-b*(t_a/t_b)-T.log(T.gamma(a)) \
-                    +T.sum(-T.psi(t_g_1)+T.log(t_g_2)+(t_g_1/t_g_2-1)*(T.psi(t_tau)-T.psi(t_tau+h_tau))) \
+                    +T.sum(-T.log(T.gamma(a)/T.log(T.gamma(a+1)))+(t_g_1/t_g_2-1)*(T.psi(t_tau)-T.psi(t_tau+h_tau))-T.psi(t_g_1)+T.log(t_g_2)) \
                     +T.sum(c*T.log(f)+(c-1)*(T.psi(t_c)-T.log(t_f))-f*(t_c/t_f)-T.log(T.gamma(c))) \
-                    +T.sum((xi-1)*(T.psi(t_xi)-(T.psi(T.sum(t_xi,1))).dimshuffle(0, 'x'))) \
+                    +T.sum((T.cumprod(T.gamma(t_xi),1)[:,-1])/T.gamma(T.sum(t_xi,1)))+T.sum((xi-1)*(T.psi(t_xi)-(T.psi(T.sum(t_xi,1))).dimshuffle(0, 'x'))) \
                     +T.sum(e_1*T.log(e_2)-(e_1+1)*(T.log(t_e_2)-T.psi(t_e_1))-e_2*(t_e_1/t_e_2))-T.gamma(e_1) \
-                    +T.sum(0.5*(T.psi(t_c)-T.log(t_f)))-0.5*T.sum(T.dot(t_mu**2+t_l,t_c/t_f)) \
+                    +T.sum(-0.5*(T.log(2*np.pi)+T.psi(t_c)-T.log(t_f)))-0.5*T.sum(T.dot(t_mu**2+t_l,t_c/t_f)) \
                     +T.sum(q_z*T.cumsum(T.psi(h_tau)-T.psi(t_tau+h_tau))+(1.0-q_z)*mult_bound)\
-                    +T.sum(zeta*(T.psi(t_xi)-T.psi(T.sum(t_xi,1)).dimshuffle(0,'x')))\
-                    +0.5*T.sum(zeta*(T.psi(t_e_1)-T.log(t_e_2)))-0.5*T.sum(T.sum(zeta*(t_e_1/t_e_2),2)*(t_m**2+t_s)) \
+                    +T.sum(zeta*(-T.psi(t_xi)-T.psi(T.sum(t_xi,1)).dimshuffle(0,'x')))\
+                    +0.5*T.sum(zeta*(-T.log(2*np.pi)+T.psi(t_e_1)-T.log(t_e_2)))-0.5*T.sum(T.sum(zeta*(t_e_1/t_e_2),2)*(t_m**2+t_s)) \
                     +T.sum(-0.5*T.log(2*np.pi)+0.5*(T.psi(t_a)-T.log(t_b))) \
                           +last_term
-                    
-        entropy=T.sum(t_g_1-T.log(t_g_2)+(1-t_g_1)*T.psi(t_g_1)) \
-                +T.sum(t_a-T.log(t_b)+(1-t_a)*T.psi(t_a)) \
-                -T.sum((t_tau-1)*(T.psi(t_tau))-(h_tau-1)*T.psi(h_tau)+(t_tau+h_tau-2)*T.psi(t_tau+h_tau)) \
-                +T.sum(t_c-T.log(t_f)+T.log(t_c)+(1-t_c)*T.psi(t_c)) \
-                -T.sum((T.sum(1.0-t_xi,1)*T.psi(T.sum(t_xi,1))))-T.sum(T.sum((t_xi-1.0)*T.psi(t_xi),1)) \
+                          
+        #=======================================================================
+        # calculate the entropy term                     
+        #=======================================================================
+        entropy=T.sum(t_g_1-T.log(t_g_2)+(1-t_g_1)*T.psi(t_g_1))+T.log(abs(T.gamma(t_g_1))) \
+                +T.sum(t_a-T.log(t_b)+(1-t_a)*T.psi(t_a)+T.log(T.gamma(t_a))) \
+                +T.sum(-T.log(T.gamma(t_tau)*T.gamma(h_tau)/T.gamma(h_tau+t_tau))-(t_tau-1)*(T.psi(t_tau))-(h_tau-1)*T.psi(h_tau)+(t_tau+h_tau-2)*T.psi(t_tau+h_tau)) \
+                +T.sum(t_c-T.log(t_f)+T.log(T.gamma(t_c))+(1-t_c)*T.psi(t_c)) \
+                +T.sum((T.cumprod(T.gamma(t_xi),1)[:,-1])/T.gamma(T.sum(t_xi,1)))-T.sum((T.sum(1.0-t_xi,1)*T.psi(T.sum(t_xi,1))))-T.sum(T.sum((t_xi-1.0)*T.psi(t_xi),1)) \
                 +T.sum(t_e_1+T.log(t_e_2*T.gamma(t_e_1))-(1+t_e_1)*T.psi(t_e_1)) \
                 +T.sum(0.5*(T.log(2*np.pi*t_l))+1) \
                 -T.sum((1.0-q_z)*T.log(1.0-q_z)+q_z*T.log(q_z)) \
-                +T.sum(0.5*T.log(2*np.pi*t_s)+1) \
+                +T.sum(0.5*(T.log(2*np.pi*t_s)+1)) \
                 +T.sum(zeta*T.log(zeta))
-                        
-        lower_bound=likelihood+entropy
+
+        lower_bound=likelihood-entropy
         
         #print("LL",likelihood.type)
-        #print("E",entropy.type)
-        #print("lowerbound",lower_bound.type)
-        #gradVariables=t_e_1
         
         #=======================================================================
         # set local and global gradient variables
@@ -319,6 +336,8 @@ class IBP_ICA:
         self.localGradientFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K],derivatives_local,allow_input_downcast=True)
         self.batchGradientFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K],derivatives_batch,allow_input_downcast=True)
         self.lowerBoundFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K],lower_bound)
+        self.likelihoodFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K],likelihood,allow_input_downcast=True)
+        self.entropyFunction=theano.function(localVar+gradVariables+batch_grad_vars,entropy,allow_input_downcast=True,on_unused_input='warn')
     
     def create_synthetic_data(self,N):
         G=np.random.normal(size=(self.D,self.K))
@@ -346,14 +365,22 @@ if __name__ == '__main__':
     i=1
     LL=[]
     
-
+    iteration=1
     while True:
-        
+        print("Stochastic IBP-ICA iteration: ",iteration)
+        iteration+=1
         rho=(i+1.0)**(-.75)
         i+=1
         
         z.lower_bound=0
         z.iterate(miniBatch,rho)
-        break
+        print(z.local_params)
+        print("params",z.params)
+        print("batch",z.batch_params)
+        LL.append(z.lower_bound)
+        print(z.getLowerBoundterms(miniBatch))
+        print("Lower Bound at iteration",iteration,"is ",z.lower_bound)
+        if (iteration>1):
+            break
         
     
