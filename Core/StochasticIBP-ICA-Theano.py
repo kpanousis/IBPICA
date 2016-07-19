@@ -10,8 +10,9 @@ import time
 from numpy.linalg import norm
 from numpy import newaxis
 from theano.ifelse import ifelse
+from theano import pp
 theano.config.exception_verbosity='high'
-theano.config.optimizer='None'
+#theano.config.optimizer='None'
 theano.config.traceback.limit=20
 
 class IBP_ICA:
@@ -33,8 +34,8 @@ class IBP_ICA:
         #scalars
         t_a=2.0
         t_b=1.0
-        t_g_1=1.0
-        t_g_2=1.0
+        t_g_1=2.0
+        t_g_2=2.0
         
         #matrices
         t_e_1=np.ones((self.K,self.J))
@@ -79,7 +80,6 @@ class IBP_ICA:
         '''
         total_gradients=[0]*len(self.params)
         gradients=self.gradientFunction(*(self.local_params+self.params+self.batch_params),x=miniBatch,xi=self.xi,K=self.K)
-        self.lower_bound+=gradients[-1]
         
 #         for i in range(len(self.params)):
 #             total_gradients[i]+=gradients[i]
@@ -115,7 +115,7 @@ class IBP_ICA:
             self.params[i]*=(1.0-rho)
             self.params[i]+=rho*gradients[i]
         for i in range(len(self.batch_params)):
-            self.batch_params[i]*=(1-rho)
+            self.batch_params[i]*=(1.0-rho)
             self.batch_params[i]+=(rho/current_batch_size)*(batch_gradients[i])
     
     def iterate(self,miniBatch,rho):
@@ -153,10 +153,8 @@ class IBP_ICA:
         while True:
             gradients=self.localGradientFunction(*(self.local_params+self.params+self.batch_params),x=miniBatch,xi=self.xi,K=self.K)
             self.local_params[0]=gradients[0]
-            print(gradients[0])
             gradients=self.localGradientFunction(*(self.local_params+self.params+self.batch_params),x=miniBatch,xi=self.xi,K=self.K)
             self.local_params[1]=gradients[1]
-            print(gradients[1])
             gradients=self.localGradientFunction(*(self.local_params+self.params+self.batch_params),x=miniBatch,xi=self.xi,K=self.K)
             self.local_params[2]=gradients[2]
             
@@ -202,25 +200,18 @@ class IBP_ICA:
         t_c,t_f,t_tau,h_tau =T.fcols('t_c','t_f','t_tau','h_tau')
         
         #calculate q_k
-        #scan this shit
+        #scan this 
         def qkStep(s_index,t_tau,h_tau):
             return T.exp(T.psi(h_tau[s_index])+T.sum(T.psi(t_tau[:s_index]))-T.sum(T.psi(t_tau[:s_index+1]+h_tau[:s_index+1])))
         
-        indices=T.arange(K)
         q_k,up=theano.scan(fn=qkStep,
-                           sequences=indices,
+                           sequences=T.arange(K),
                            non_sequences=[t_tau,h_tau])
         
         q_k/=T.sum(q_k)
        
                 
-        #some terms for the multinomial bound
-        #entropy of q_k        
-        q_k_entropy=T.sum(q_k*T.log(q_k))
-        f_sum=T.cumsum(q_k*T.psi(h_tau))
-        sum_m_plus_one_k=T.cumsum(q_k)
-        
-        
+       
         #=======================================================================
         # Nested scan for the calculation of the multinomial bound
         #=======================================================================
@@ -258,10 +249,9 @@ class IBP_ICA:
                                       sequences=[start_slices],
                                       non_sequences=[t_tau,q_k,add_index_zero],
                                       )
+        
+        
         #the multinomial bound for calculating p(z_{dk}|\upsilon_k)
-        #WTF
-
-
         mult_bound=T.cumsum(q_k*T.psi(h_tau))+sec_sum+third_sum-T.cumsum(q_k*T.log(q_k))
 
         #calculate q(z_{dk}=1)
@@ -271,31 +261,29 @@ class IBP_ICA:
         #=======================================================================
         # calculation of the weird last term
         #=======================================================================
-        def normalCalc(x_n,t_m_n,t_s_n,curr,t_mu,t_l,t_b,t_a):            
-            return curr-0.5*(t_b/(t_a-1))*(T.dot(x_n, x_n.T)-2*T.dot(T.dot(t_m_n.T,t_mu.T),x_n)+T.sum(T.dot((t_m_n**2+t_s_n).T,(t_l+T.diag(T.dot(t_mu.T,t_mu))).T)))
+#         def normalCalc(x_n,t_m_n,t_s_n,curr,t_mu,t_l,t_b,t_a):            
+#             return curr-0.5*(t_b/(t_a-1))*(T.dot(x_n, x_n.T)-2*T.dot(T.dot(t_m_n.T,t_mu.T),x_n)+T.sum(T.dot((t_m_n**2+t_s_n).T,(t_l+T.diag(T.dot(t_mu.T,t_mu))).T)))
         
-
-        last_term,_=theano.scan(fn=normalCalc,
-                                sequences=[x,t_m,t_s],
+        last_term,_=theano.scan(lambda i, curr,x,t_m,t_s,t_mu,t_l,t_b,t_a:  curr-0.5*(t_a/(t_b))*(T.dot(x[i], x[i].T)-2*T.dot(T.dot(t_m[i].T,t_mu.T),x[i])+T.sum(T.dot((t_m[i]**2+t_s[i]).T,(t_l+T.diag(T.dot(t_mu.T,t_mu))).T))),
+                                sequences=T.arange(x.shape[0]),
                                 outputs_info=T.constant(.0).astype('float64'),
-                                non_sequences=[t_mu,t_l,t_b,t_a])
+                                non_sequences=[x,t_m,t_s,t_mu,t_l,t_b,t_a])
         last_term=last_term[-1]
         
         #=======================================================================
         # calculate the likelihood term 
         #=======================================================================
-        
         likelihood=g_1*T.log(g_2)+(g_1-1)*(T.psi(t_g_1)-T.log(t_g_2))-g_2*(t_g_1/t_g_2)-T.log(T.gamma(g_1)) \
                     +a*T.log(b)+(a-1)*(T.psi(t_a)-T.log(t_b))-b*(t_a/t_b)-T.log(T.gamma(a)) \
-                    +T.sum(-T.log(T.gamma(a)/T.log(T.gamma(a+1)))+(t_g_1/t_g_2-1)*(T.psi(t_tau)-T.psi(t_tau+h_tau))-T.psi(t_g_1)+T.log(t_g_2)) \
+                    +T.sum(T.psi(t_g_1)-T.log(t_g_2)+(t_g_1/t_g_2-1)*(T.psi(t_tau)-T.psi(t_tau+h_tau))) \
                     +T.sum(c*T.log(f)+(c-1)*(T.psi(t_c)-T.log(t_f))-f*(t_c/t_f)-T.log(T.gamma(c))) \
-                    +T.sum((T.cumprod(T.gamma(t_xi),1)[:,-1])/T.gamma(T.sum(t_xi,1)))+T.sum((xi-1)*(T.psi(t_xi)-(T.psi(T.sum(t_xi,1))).dimshuffle(0, 'x'))) \
-                    +T.sum(e_1*T.log(e_2)-(e_1+1)*(T.log(t_e_2)-T.psi(t_e_1))-e_2*(t_e_1/t_e_2))-T.gamma(e_1) \
-                    +T.sum(-0.5*(T.log(2*np.pi)+T.psi(t_c)-T.log(t_f)))-0.5*T.sum(T.dot(t_mu**2+t_l,t_c/t_f)) \
+                    +T.sum(-T.log(T.cumprod(T.gamma(t_xi),1)[:,-1])/T.gamma(T.sum(t_xi,1)))+T.sum((xi-1)*(T.psi(t_xi)-(T.psi(T.sum(t_xi,1))).dimshuffle(0, 'x'))) \
+                    +T.sum(e_1*T.log(e_2)-(e_1+1)*(T.log(t_e_2)-T.psi(t_e_1))-e_2*(t_e_1/t_e_2)-T.gamma(e_1)) \
+                    +T.sum(-0.5*(T.log(2*np.pi)+(T.psi(t_c)-T.log(t_f))))-0.5*T.sum(T.dot(t_mu**2+t_l,t_c/t_f)) \
                     +T.sum(q_z*T.cumsum(T.psi(h_tau)-T.psi(t_tau+h_tau))+(1.0-q_z)*mult_bound)\
-                    +T.sum(zeta*(-T.psi(t_xi)-T.psi(T.sum(t_xi,1)).dimshuffle(0,'x')))\
-                    +0.5*T.sum(zeta*(-T.log(2*np.pi)+T.psi(t_e_1)-T.log(t_e_2)))-0.5*T.sum(T.sum(zeta*(t_e_1/t_e_2),2)*(t_m**2+t_s)) \
-                    +T.sum(-0.5*T.log(2*np.pi)+0.5*(T.psi(t_a)-T.log(t_b))) \
+                    +T.sum(zeta*(T.psi(t_xi)-T.psi(T.sum(t_xi,1)).dimshuffle(0,'x')))\
+                    +T.sum(0.5*zeta*(-T.log(2*np.pi)-(T.psi(t_e_1)-T.log(t_e_2))))-T.sum(0.5*T.sum(zeta*(t_e_1/t_e_2),2)*(t_m**2+t_s)) \
+                    +T.sum(-0.5*T.log(2*np.pi)-0.5*(T.psi(t_a)-T.log(t_b))) \
                           +last_term
                           
         #=======================================================================
@@ -308,7 +296,7 @@ class IBP_ICA:
                 +T.sum((T.cumprod(T.gamma(t_xi),1)[:,-1])/T.gamma(T.sum(t_xi,1)))-T.sum((T.sum(1.0-t_xi,1)*T.psi(T.sum(t_xi,1))))-T.sum(T.sum((t_xi-1.0)*T.psi(t_xi),1)) \
                 +T.sum(t_e_1+T.log(t_e_2*T.gamma(t_e_1))-(1+t_e_1)*T.psi(t_e_1)) \
                 +T.sum(0.5*(T.log(2*np.pi*t_l))+1) \
-                -T.sum((1.0-q_z)*T.log(1.0-q_z)+q_z*T.log(q_z)) \
+                +T.sum((1.0-q_z)*T.log(1.0-q_z)+q_z*T.log(q_z)) \
                 +T.sum(0.5*(T.log(2*np.pi*t_s)+1)) \
                 +T.sum(zeta*T.log(zeta))
 
@@ -322,16 +310,19 @@ class IBP_ICA:
         gradVariables=[t_tau,omega,h_tau,t_a,t_c,t_f,t_g_1,t_g_2]
         localVar=[t_s,t_m,zeta]
         batch_grad_vars=[t_e_1,t_e_2,t_xi,t_l,t_mu,t_b]
+        
         #=======================================================================
         # calculate the derivatives
         #=======================================================================
         derivatives=T.grad(lower_bound,gradVariables)
         derivatives_local=T.grad(lower_bound,localVar)
         derivatives_batch=T.grad(lower_bound,batch_grad_vars)
-       
         
-        derivatives.append(lower_bound)
-        
+        t_s_d=T.grad(lower_bound,[zeta])
+        print('t_s',(t_s_d[0]))
+        print('t_s',pp(t_s_d[0][1]))
+
+                
         self.gradientFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K],derivatives,allow_input_downcast=True)
         self.localGradientFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K],derivatives_local,allow_input_downcast=True)
         self.batchGradientFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K],derivatives_batch,allow_input_downcast=True)
