@@ -148,7 +148,8 @@ class IBP_ICA:
         Maybe make something like local_gradient_function ?
         '''
         print("Updating local parameters...")
-        old_values=self.local_params
+        old_values=self.local_params[:]
+
         tolerance=10**-5
         while True:
             gradients=self.localGradientFunction(*(self.local_params+self.params+self.batch_params),x=miniBatch,xi=self.xi,K=self.K)
@@ -164,6 +165,8 @@ class IBP_ICA:
                 if (abs(norm(old_values[1])-norm(self.local_params[1]))<tolerance):
                     if (abs(norm(old_values[2])-norm(self.local_params[2]))<tolerance):
                         break
+            old_values=self.local_params[:]
+
             
     def createGradientFunctions(self):
         '''
@@ -278,9 +281,9 @@ class IBP_ICA:
                     +T.sum(T.psi(t_g_1)-T.log(t_g_2)+(t_g_1/t_g_2-1)*(T.psi(t_tau)-T.psi(t_tau+h_tau))) \
                     +T.sum(c*T.log(f)+(c-1)*(T.psi(t_c)-T.log(t_f))-f*(t_c/t_f)-T.log(T.gamma(c))) \
                     +T.sum(-T.log(T.cumprod(T.gamma(t_xi),1)[:,-1])/T.gamma(T.sum(t_xi,1)))+T.sum((xi-1)*(T.psi(t_xi)-(T.psi(T.sum(t_xi,1))).dimshuffle(0, 'x'))) \
-                    +T.sum(e_1*T.log(e_2)-(e_1+1)*(T.log(t_e_2)-T.psi(t_e_1))-e_2*(t_e_1/t_e_2)-T.gamma(e_1)) \
+                    +T.sum(e_1*T.log(e_2)+(e_1-1)*(T.log(t_e_2)-T.psi(t_e_1))-e_2*(t_e_1/t_e_2)-T.log(T.gamma(e_1))) \
                     +T.sum(-0.5*(T.log(2*np.pi)+(T.psi(t_c)-T.log(t_f))))-0.5*T.sum(T.dot(t_mu**2+t_l,t_c/t_f)) \
-                    +T.sum(q_z*T.cumsum(T.psi(h_tau)-T.psi(t_tau+h_tau))+(1.0-q_z)*mult_bound)\
+                    +T.sum(q_z*T.cumsum(T.psi(t_tau)-T.psi(t_tau+h_tau))+(1.0-q_z)*mult_bound)\
                     +T.sum(zeta*(T.psi(t_xi)-T.psi(T.sum(t_xi,1)).dimshuffle(0,'x')))\
                     +T.sum(0.5*zeta*(-T.log(2*np.pi)-(T.psi(t_e_1)-T.log(t_e_2))))-T.sum(0.5*T.sum(zeta*(t_e_1/t_e_2),2)*(t_m**2+t_s)) \
                     +T.sum(-0.5*T.log(2*np.pi)-0.5*(T.psi(t_a)-T.log(t_b))) \
@@ -289,18 +292,18 @@ class IBP_ICA:
         #=======================================================================
         # calculate the entropy term                     
         #=======================================================================
-        entropy=T.sum(t_g_1-T.log(t_g_2)+(1-t_g_1)*T.psi(t_g_1))+T.log(abs(T.gamma(t_g_1))) \
-                +T.sum(t_a-T.log(t_b)+(1-t_a)*T.psi(t_a)+T.log(T.gamma(t_a))) \
+        entropy=T.sum(t_g_1-T.log(t_g_2)-(1-t_g_1)*T.psi(t_g_1))+T.log(T.gamma(t_g_1)) \
+                +T.sum(t_a-T.log(t_b)-(1-t_a)*T.psi(t_a)+T.log(T.gamma(t_a))) \
                 +T.sum(-T.log(T.gamma(t_tau)*T.gamma(h_tau)/T.gamma(h_tau+t_tau))-(t_tau-1)*(T.psi(t_tau))-(h_tau-1)*T.psi(h_tau)+(t_tau+h_tau-2)*T.psi(t_tau+h_tau)) \
                 +T.sum(t_c-T.log(t_f)+T.log(T.gamma(t_c))+(1-t_c)*T.psi(t_c)) \
                 +T.sum((T.cumprod(T.gamma(t_xi),1)[:,-1])/T.gamma(T.sum(t_xi,1)))-T.sum((T.sum(1.0-t_xi,1)*T.psi(T.sum(t_xi,1))))-T.sum(T.sum((t_xi-1.0)*T.psi(t_xi),1)) \
                 +T.sum(t_e_1+T.log(t_e_2*T.gamma(t_e_1))-(1+t_e_1)*T.psi(t_e_1)) \
                 +T.sum(0.5*(T.log(2*np.pi*t_l))+1) \
-                +T.sum((1.0-q_z)*T.log(1.0-q_z)+q_z*T.log(q_z)) \
+                -T.sum((1.0-q_z)*T.log(1.0-q_z)+q_z*T.log(q_z)) \
                 +T.sum(0.5*(T.log(2*np.pi*t_s)+1)) \
-                +T.sum(zeta*T.log(zeta))
+                -T.sum(zeta*T.log(zeta))
 
-        lower_bound=likelihood-entropy
+        lower_bound=likelihood+entropy
         
         #print("LL",likelihood.type)
         
