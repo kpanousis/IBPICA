@@ -153,6 +153,8 @@ class IBP_ICA:
         tolerance=10**-5
         while True:
             gradients=self.localGradientFunction(*(self.local_params+self.params+self.batch_params),x=miniBatch,xi=self.xi,K=self.K,D=self.D)
+            print("grad[0]:",gradients[0])
+            time.sleep(3)
             self.local_params[0]=gradients[0]
             print("where negative:",np.where(self.local_params[0]<0))
             print("where nan:",np.isnan(self.local_params[0]))
@@ -350,8 +352,10 @@ class IBP_ICA:
         derivatives=T.grad(lower_bound,gradVariables)
         derivatives_local=T.grad(lower_bound,localVar)
         derivatives_batch=T.grad(lower_bound,batch_grad_vars)
+        print(pp(derivatives_local[0]))
         
         t_s_d=T.grad(lower_bound,[zeta])
+        t_s_d_f=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D],t_s_d)
         #print('t_s',(t_s_d[0]))
         #print('t_s',pp(t_s_d[0][1]))
 
@@ -362,7 +366,8 @@ class IBP_ICA:
         self.lowerBoundFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D],lower_bound,allow_input_downcast=True)
         self.likelihoodFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D],likelihood,allow_input_downcast=True)
         self.entropyFunction=theano.function(localVar+gradVariables+batch_grad_vars+[K,D],entropy,allow_input_downcast=True,on_unused_input='warn')
-    
+        print(pp(t_s_d_f.maker.fgraph.outputs[0]))
+        
     def create_synthetic_data(self,N):
         G=np.random.normal(size=(self.D,self.K))
         y=np.random.normal(size=(self.K,N))
