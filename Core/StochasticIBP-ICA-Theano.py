@@ -15,6 +15,7 @@ from theano.compile.io import Out
 theano.config.exception_verbosity='high'
 #theano.config.optimizer='None'
 theano.config.traceback.limit=20
+from six.moves import cPickle
 
 class IBP_ICA:
     
@@ -30,7 +31,7 @@ class IBP_ICA:
         '''
         Initialize the parameters to pass to the model
         '''
-        xi=np.ones((self.K,self.J))*(1/self.J)
+        xi=np.ones((self.K,self.J))
         
         #scalars
         t_a=2.0
@@ -43,14 +44,14 @@ class IBP_ICA:
         t_e_2=2*np.ones((self.K,self.J))
         t_xi=np.ones((self.K,self.J))
         t_l=np.random.gamma(1,1,size=(self.D,self.K))
-        t_mu=np.random.normal(0,1,size=(self.D,self.K))
+        t_mu=np.random.gamma(1,1,size=(self.D,self.K))
         omega=np.random.random(size=(self.D,self.K))
         
         #more sophisticated initialization
         t_s=np.random.gamma(1,1,size=(self.batch_size,self.K))
         
         #here to run PCA
-        t_m=np.random.normal(0,1,size=(self.batch_size,self.K))
+        t_m=np.random.gamma(1,1,size=(self.batch_size,self.K))
         
         #tensor
         zeta=np.random.random(size=(self.batch_size,self.K,self.J))
@@ -152,8 +153,8 @@ class IBP_ICA:
         tolerance=10**-5
         while True:
             gradients=self.localGradientFunction(*(self.local_params+self.params+self.batch_params),x=miniBatch,xi=self.xi,K=self.K,D=self.D)
-            print("grad[0]:",gradients[0])
-            time.sleep(3)
+            #print("grad[0]:",gradients[0])
+            #time.sleep(3)
             self.local_params[0]=gradients[0]
             print("where negative:",np.where(self.local_params[0]<0))
             print("where nan:",np.isnan(self.local_params[0]))
@@ -182,14 +183,14 @@ class IBP_ICA:
         print("Creating gradient functions...")
         
         print("Initializing prior parameters...")
-        a=T.constant(3.0)
-        b=T.constant(3.0)
-        c=T.constant(3.0)
-        f=T.constant(3.0)
-        g_1=T.constant(3.0)
-        g_2=T.constant(3.0)
-        e_1=T.constant(3.0)
-        e_2=T.constant(3.0)
+        a=T.constant(2.0)
+        b=T.constant(2.0)
+        c=T.constant(2.0)
+        f=T.constant(2.0)
+        g_1=T.constant(2.0)
+        g_2=T.constant(2.0)
+        e_1=T.constant(2.0)
+        e_2=T.constant(2.0)
 
         K=T.iscalar('K')
         D=T.iscalar('D')      
@@ -374,7 +375,7 @@ class IBP_ICA:
         
         expectation_log_lambda_k=c*T.log(f)+(c-1)*(T.psi(t_c)-T.log(t_f))-f*(t_c/t_f)-T.log(T.gamma(c))
         
-        expectation_log_varpi=-T.log(T.prod(T.gamma(t_xi),1))/T.gamma(T.sum(t_xi,1))+T.sum((xi-1)*(T.psi(t_xi)-(T.psi(T.sum(t_xi,1))).dimshuffle(0, 'x')),1)
+        expectation_log_varpi=-T.log(T.prod(T.gamma(xi),1))/T.gamma(T.sum(xi,1))+T.sum((xi-1)*(T.psi(t_xi)-(T.psi(T.sum(t_xi,1))).dimshuffle(0, 'x')),1)
         
         expectation_log_skj=e_1*T.log(e_2)-(e_1+1)*(T.log(t_e_2)-T.psi(t_e_1))-e_2*(t_e_1/t_e_2)-T.log(T.gamma(e_1))
         
@@ -388,7 +389,7 @@ class IBP_ICA:
         #expectation_log_y=0.5*zeta*(-T.log(2*np.pi)+(T.psi(t_e_1)-T.log(t_e_2))-(t_e_1/t_e_2)*(T.nlinalg.trace(t_s)+T.diag(T.dot(t_m.T,t_m)).dimshuffle(0,'x')))
         expectation_log_y=final_y
         
-        expectation_log_x=-0.5*T.log(2*np.pi)+0.5*T.log(T.psi(t_a)+T.log(t_b))-0.5*(t_a/t_b)*final
+        expectation_log_x=-0.5*T.log(2*np.pi)+0.5*(T.psi(t_a)-T.log(t_b))-0.5*(t_a/t_b)*final
 #         
 #         expectation_log_x=-0.5*D*T.log(2*np.pi)+0.5*D*(T.psi(t_a)-T.log(t_b))-0.5*(t_a/t_b)*(T.diag(T.dot(x,x.T))-2*T.diag(T.dot(T.dot(t_m,t_mu.T),x.T))\
 #             +(T.nlinalg.trace(t_s)+T.diag(T.dot(t_m,t_m.T)))*T.sum(T.nlinalg.trace(t_l)+T.diag(T.dot(t_mu.T,t_mu))))
@@ -442,7 +443,7 @@ class IBP_ICA:
         print(pp(derivatives_local[0]))
         
         t_s_d=T.grad(lower_bound,[zeta])
-        t_s_d_f=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D],t_s_d)
+        t_s_d_f=theano.function_dump('func_ts',localVar+gradVariables+batch_grad_vars+[xi,x,K,D],t_s_d)
         #print('t_s',(t_s_d[0]))
         #print('t_s',pp(t_s_d[0][1]))
 
@@ -480,8 +481,16 @@ if __name__ == '__main__':
     z.createGradientFunctions()
     LL=[]
     print(z.lowerBoundFunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch))
+
+    print(np.where(z.local_params[0]<0))
+
+    print(np.where(z.local_params[1]<0))
     time.sleep(4)
     
+    print(z.params[-3])
+    print(z.params[0])
+    print(z.params[1])
+
     iteration=1
     while True:
         print("Stochastic IBP-ICA iteration: ",iteration)
