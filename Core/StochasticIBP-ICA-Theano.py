@@ -12,8 +12,9 @@ from numpy import newaxis
 from theano.ifelse import ifelse
 from theano import pp
 from theano.compile.io import Out
+from theano.gradient import consider_constant
 theano.config.exception_verbosity='high'
-#theano.config.optimizer='None'
+theano.config.optimizer='fast_run'
 theano.config.traceback.limit=20
 from six.moves import cPickle
 
@@ -31,38 +32,44 @@ class IBP_ICA:
         '''
         Initialize the parameters to pass to the model
         '''
-        xi=np.ones((self.K,self.J))
+        xi=np.ones((self.K,self.J))*2
         
         #scalars
         t_a=2.0
         t_b=2.0
-        t_g_1=2.0
-        t_g_2=2.0
+        t_g_1=2.0*3
+        t_g_2=2.0*4
         
         #matrices
-        t_e_1=2*np.ones((self.K,self.J))
-        t_e_2=2*np.ones((self.K,self.J))
-        t_xi=np.ones((self.K,self.J))
-        t_l=np.random.gamma(1,1,size=(self.D,self.K))
-        t_mu=np.random.gamma(1,1,size=(self.D,self.K))
-        omega=np.random.random(size=(self.D,self.K))
+        t_e_1=4*np.ones((self.K,self.J))
+        t_e_2=4*np.ones((self.K,self.J))
+        t_xi=np.ones((self.K,self.J))*5
+        #t_l=np.random.gamma(1,1,size=(self.D,self.K))
+        #t_mu=np.random.gamma(1,1,size=(self.D,self.K))
+        t_l=np.ones((self.D,self.K))
+        t_mu=np.ones((self.D,self.K))
+
+        omega=np.ones((self.D,self.K))
         
         #more sophisticated initialization
-        t_s=np.random.gamma(1,1,size=(self.batch_size,self.K))
-        
+        #t_s=np.random.gamma(1,1,size=(self.batch_size,self.K))
+        t_s=np.ones((self.batch_size,self.K))
         #here to run PCA
-        t_m=np.random.gamma(1,1,size=(self.batch_size,self.K))
-        
+        #t_m=np.random.gamma(1,1,size=(self.batch_size,self.K))
+        t_m=np.ones((self.batch_size,self.K))
         #tensor
-        zeta=np.random.random(size=(self.batch_size,self.K,self.J))
+        #zeta=np.random.random(size=(self.batch_size,self.K,self.J))
+        zeta=np.ones((self.batch_size,self.K,self.J))*(1.0/J)
         for s in range(self.batch_size):
             zeta[s,:,:]/=zeta[s,:,:].sum(1).reshape(-1,1)
         
         #tcolumns
-        t_c=2*np.ones((self.K,1))
-        t_f=2*np.ones((self.K,1))
-        t_tau=2*np.ones((self.K,1))
-        h_tau=2*np.ones((self.K,1))
+        t_c=2*np.ones((self.K,1))*6
+        t_f=2*np.ones((self.K,1))*7
+        t_tau=2*np.ones((self.K,1))*8
+        h_tau=2*np.ones((self.K,1))*9
+        
+        print((t_a/t_b)*(t_mu**2+t_l).sum(0)+(zeta*(t_e_1/t_e_2)).sum(2))
         
         #the first three are the local params
         self.params=[t_tau,omega,h_tau,t_a,t_c,t_f,t_g_1,t_g_2]
@@ -155,6 +162,7 @@ class IBP_ICA:
             gradients=self.localGradientFunction(*(self.local_params+self.params+self.batch_params),x=miniBatch,xi=self.xi,K=self.K,D=self.D)
             #print("grad[0]:",gradients[0])
             #time.sleep(3)
+            print(gradients[0])
             self.local_params[0]=gradients[0]
             print("where negative:",np.where(self.local_params[0]<0))
             print("where nan:",np.isnan(self.local_params[0]))
@@ -182,22 +190,24 @@ class IBP_ICA:
         
         print("Creating gradient functions...")
         
-        print("Initializing prior parameters...")
-        a=T.constant(2.0)
-        b=T.constant(2.0)
-        c=T.constant(2.0)
-        f=T.constant(2.0)
-        g_1=T.constant(2.0)
-        g_2=T.constant(2.0)
-        e_1=T.constant(2.0)
-        e_2=T.constant(2.0)
+        print("\t Initializing prior parameters...")
+        a=T.constant(2.0*4)
+        b=T.constant(2.0*4)
+        c=T.constant(2.0*4)
+        f=T.constant(2.0*4)
+        g_1=T.constant(2.0*4)
+        g_2=T.constant(2.0*4)
+        e_1=T.constant(2.0*4)
+        e_2=T.constant(2.0*4)
 
         K=T.iscalar('K')
         D=T.iscalar('D')      
           
         xi=T.fmatrix('xi')
         
+        #data matrix
         x=T.matrix('x')
+        
         #create the Theano variables
         #tilde_a,tilde_b,tilde_gamma_1 and tilde_gamma_2 are scalars
         t_a,t_b,t_g_1,t_g_2=T.fscalars('t_a','t_b','t_g_1','t_g_2')
@@ -205,6 +215,7 @@ class IBP_ICA:
         #tilde_eta_1,tilde_eta_2,tilde_xi,tilde_l,tilde_mu,omega,tilde_s, tilde_m and zeta are matrices
         t_e_1,t_e_2,t_xi,t_l,t_mu,omega,t_s,t_m=T.fmatrices('t_e_1','t_e_2','t_xi','t_l','t_mu','omega','t_s','t_m')
         
+        #the only tensor we got
         zeta=T.ftensor3('zeta')
     
         #the rest are columns
@@ -221,6 +232,7 @@ class IBP_ICA:
 #         et_c=T.exp(t_c)
 #         et_f=T.exp(t_f)
 #         et_l=T.exp(t_l)
+#     
 #         ezeta=T.exp(zeta)
 #         et_xi=T.exp(t_xi)
 #         eh_tau=T.exp(h_tau)
@@ -238,54 +250,22 @@ class IBP_ICA:
         q_k=T.exp(T.psi(h_tau)+cs-T.cumsum(T.psi(t_tau+h_tau),0))
         q_k/=T.sum(q_k)
        
-        #=======================================================================
-        # Nested scan for the calculation of the multinomial bound
-        #=======================================================================
-        def oneStep(s_index,curr,tau,q_k,k,add_index):
-            return ifelse(T.gt(k,0),curr+T.psi(tau[s_index,0])*T.sum(q_k[s_index+add_index:k+1]),curr)
-         
-        def inner_loop(k,tau,q_k,add_index):
-           
-            zero=T.constant(0).astype('int64')
- 
-            s_indices=ifelse(T.gt(k,zero),T.arange(k),T.arange(0,1))
- 
-            n_steps=ifelse(T.gt(k-add_index,zero),k-add_index,T.constant(1).astype('int64'))
- 
-            outputs,_=theano.scan(fn=oneStep,
-                                        sequences=s_indices,
-                                        outputs_info=T.constant(.0),
-                                        non_sequences=[tau,q_k,k,add_index],
-                                        )
-            #print("outputs",outputs.type)
-            outputs=outputs[-1]
-            return outputs
-         
-        add_index=T.constant(1).astype(('int64'))
-        sec_sum,updates=theano.scan(fn=inner_loop,
-                                      sequences=T.arange(K),
-                                      non_sequences=[t_tau,q_k,add_index],
-                                      )
-         
-        #all I need to change for the second sum are the indices
-        add_index_zero=T.constant(0).astype('int64')
-        third_sum,up=theano.scan(fn=inner_loop,
-                                      sequences=T.arange(K),
-                                      non_sequences=[t_tau,q_k,add_index_zero],
-                                      )
+     
     
         #check these FOR CORRECTNESS
         try_sum,_=theano.scan(lambda i, qk,ttau: ifelse(T.gt(i,0),T.sum(T.psi(ttau[:i-1])*(T.sum(qk[:i])-T.cumsum(qk[:i-1]))),0.),
                             sequences=T.arange(K),
-                            non_sequences=[q_k,t_tau]
+                            non_sequences=[q_k,t_tau],
+                            strict=True
                             )
         
-        try_sum2,_=theano.scan(lambda i, qk,ttau: ifelse(T.gt(i,0),T.sum(T.psi(ttau[:i]+h_tau[:i])*(T.cumsum(qk[:i])[::-1])),0.),
+        try_sum2,_=theano.scan(lambda i, qk,ttau,htau: ifelse(T.gt(i,0),T.sum(T.psi(ttau[:i]+htau[:i])*(T.cumsum(qk[:i])[::-1])),0.),
                             sequences=T.arange(K),
-                            non_sequences=[q_k,t_tau]
+                            non_sequences=[q_k,t_tau,h_tau],
+                            strict=True
                             )
+        
       
-        print((try_sum.type))
         #the multinomial bound for calculating p(z_{dk}|\upsilon_k)
         mult_bound=T.cumsum(q_k*T.psi(h_tau))+try_sum-try_sum2-T.cumsum(q_k*T.log(q_k))
 
@@ -300,24 +280,25 @@ class IBP_ICA:
 
         
         def normalCalc(d,n,xn,ts,tm,tmu,tl):
-            return xn[n,d]**2-2*xn[n,d]*T.sum(tmu[d,:]*tm[n,:])\
-                    +T.sum(tmu[d,:]*tm[n,:])**2\
-                    +T.sum((tmu[d,:]**2+tl[d,:])*(tm[n,:]**2+ts[n,:])-tmu[d,:]**2*tm[n,:]**2)
+            return xn[n,d]**2-2*xn[n,d]*T.dot(tmu[d,:],tm[n,:].T)\
+                    +T.dot(tmu[d,:],tm[n,:].T)**2\
+                    +((tmu[d,:]**2+tl[d,:])*(tm[n,:]**2+ts[n,:])).sum()-(tmu[d,:]**2*tm[n,:]**2).sum()
              
         def inter_loop(n,xn,ts,tm,tmu,tl):
             
             outputs,_=theano.scan(fn=normalCalc,
                                 sequences=T.arange(D),
-                                non_sequences=[n,xn,ts,tm,tmu,tl]
+                                non_sequences=[n,xn,ts,tm,tmu,tl],
+                                strict=True
                                 )
             return outputs
         
         final,_=theano.scan(fn=inter_loop,
                             sequences=T.arange(S),
-                            non_sequences=[x,t_s,t_m,t_mu,t_l]
+                            non_sequences=[x,t_s,t_m,t_mu,t_l],
+                            strict=True
                             )
         
-        print("final",final.type)
         
         #=======================================================================
         # Calculate Gdk expectation
@@ -329,13 +310,15 @@ class IBP_ICA:
             
             outputs,_=theano.scan(fn=gcalc,
                                   sequences=T.arange(K),
-                                  non_sequences=[n,tc,tf,tmu,tl]
+                                  non_sequences=[n,tc,tf,tmu,tl],
+                                  strict=True
                                   )
             return outputs
         
         finalg,_=theano.scan(fn=inter_g_loop,
                                  sequences=T.arange(D),
-                                 non_sequences=[t_c,t_f,t_mu,t_l]
+                                 non_sequences=[t_c,t_f,t_mu,t_l],
+                                 strict=True
                                  )
         
         #=======================================================================
@@ -347,22 +330,24 @@ class IBP_ICA:
         def deepest_loop(k,n,zt,te1,te2,ts,tm):
             out,_=theano.scan(fn=y_calc,
                               sequences=T.arange(J),
-                              non_sequences=[k,n,zt,te1,te2,ts,tm]
+                              non_sequences=[k,n,zt,te1,te2,ts,tm],
+                              strict=True
                               )
             return out 
         
         def not_so_deep_loop(n,zt,te1,te2,ts,tm):
             out,_=theano.scan(fn=deepest_loop,
                               sequences=T.arange(K),
-                              non_sequences=[n,zt,te1,te2,ts,tm]
+                              non_sequences=[n,zt,te1,te2,ts,tm],
+                              strict=True
                               )
             return out
         
         final_y,_=theano.scan(fn=not_so_deep_loop,
                               sequences=T.arange(S),
-                              non_sequences=[zeta,t_e_1,t_e_2,t_s,t_m]
+                              non_sequences=[zeta,t_e_1,t_e_2,t_s,t_m],
+                              strict=True
                               )
-        print(final_y.type)
 #      
         #=======================================================================
         # calculate the likelihood term 
@@ -391,7 +376,7 @@ class IBP_ICA:
         
         expectation_log_x=-0.5*T.log(2*np.pi)+0.5*(T.psi(t_a)-T.log(t_b))-0.5*(t_a/t_b)*final
 #         
-#         expectation_log_x=-0.5*D*T.log(2*np.pi)+0.5*D*(T.psi(t_a)-T.log(t_b))-0.5*(t_a/t_b)*(T.diag(T.dot(x,x.T))-2*T.diag(T.dot(T.dot(t_m,t_mu.T),x.T))\
+#         expectation_log_x=-0.5*D*T.log(2*np.pi)+0.5*D*(T.psi(et_a)-T.log(t_b))-0.5*(t_a/t_b)*(T.diag(T.dot(x,x.T))-2*T.diag(T.dot(T.dot(t_m,t_mu.T),x.T))\
 #             +(T.nlinalg.trace(t_s)+T.diag(T.dot(t_m,t_m.T)))*T.sum(T.nlinalg.trace(t_l)+T.diag(T.dot(t_mu.T,t_mu))))
 #         
       
@@ -420,12 +405,11 @@ class IBP_ICA:
                 +T.sum(t_e_1+T.log(t_e_2*T.gamma(t_e_1))-(1+t_e_1)*T.psi(t_e_1)) \
                 +0.5*T.sum(K*(T.log(2*np.pi)+1)+T.log(T.prod(t_l,1))) \
                 -T.sum((1.0-q_z)*T.log(1.0-q_z))-T.sum(q_z*T.log(q_z)) \
-                +0.5*T.sum(K*(T.log(2*np.pi)+1)+T.log(T.prod(t_s,1))) \
+                +0.5*T.sum(K*(T.log(2*np.pi)+1)+T.sum(T.log(t_s),1)) \
                 -T.sum(zeta*T.log(zeta))
 
         lower_bound=likelihood+entropy
         
-        #print("LL",likelihood.type)
         
         #=======================================================================
         # set local and global gradient variables
@@ -440,25 +424,30 @@ class IBP_ICA:
         derivatives=T.grad(lower_bound,gradVariables)
         derivatives_local=T.grad(lower_bound,localVar)
         derivatives_batch=T.grad(lower_bound,batch_grad_vars)
-        print(pp(derivatives_local[0]))
         
-        t_s_d=T.grad(lower_bound,[zeta])
-        t_s_d_f=theano.function_dump('func_ts',localVar+gradVariables+batch_grad_vars+[xi,x,K,D],t_s_d)
-        #print('t_s',(t_s_d[0]))
-        #print('t_s',pp(t_s_d[0][1]))
+        #=======================================================================
+        # create the derivative functions    
+        #=======================================================================
+        
+        #testing some stuff, here the gradent is the derivative of the entropy term containing t_s wrt to t_s. With the current values, this gives 0.5 because it replaces
+        #ts[n,k] with the initial value
+        der=T.grad(expectation_log_y.sum(),t_s)
+        derx=T.grad(expectation_log_x.sum(),t_s)
+        derent=T.grad(0.5*T.sum(K*(T.log(2*np.pi)+1)+T.sum(T.log(t_s),1)),t_s)
+        self.gradyfunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D],der,allow_input_downcast=True,on_unused_input='warn')
+        self.gradx=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D],derx,allow_input_downcast=True,on_unused_input='warn')        
+        self.gradent=theano.function([t_s,K],derent,allow_input_downcast=True,on_unused_input='warn')
 
-                
         self.gradientFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D],derivatives,allow_input_downcast=True)
         self.localGradientFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D],derivatives_local,allow_input_downcast=True)
         self.batchGradientFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D],derivatives_batch,allow_input_downcast=True)
         self.lowerBoundFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D],lower_bound,allow_input_downcast=True)
         self.likelihoodFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D],likelihood,allow_input_downcast=True)
         self.entropyFunction=theano.function(localVar+gradVariables+batch_grad_vars+[K,D],entropy,allow_input_downcast=True,on_unused_input='warn')
-        print(pp(t_s_d_f.maker.fgraph.outputs[0]))
         
     def create_synthetic_data(self,N):
-        G=np.random.random(size=(self.D,self.K))
-        y=np.random.random(size=(self.K,N))
+        G=np.random.normal(0,1,size=(self.D,self.K))
+        y=np.random.normal(0,1,size=(self.K,N))
         return np.dot(G,y).T,G,y
     
 if __name__ == '__main__':
@@ -481,15 +470,10 @@ if __name__ == '__main__':
     z.createGradientFunctions()
     LL=[]
     print(z.lowerBoundFunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch))
+    print(z.gradyfunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch))
+    print(z.gradx(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch))
+    print(z.gradent(K=z.K,t_s=z.local_params[0]))
 
-    print(np.where(z.local_params[0]<0))
-
-    print(np.where(z.local_params[1]<0))
-    time.sleep(4)
-    
-    print(z.params[-3])
-    print(z.params[0])
-    print(z.params[1])
 
     iteration=1
     while True:
@@ -499,9 +483,6 @@ if __name__ == '__main__':
         
         z.lower_bound=0
         z.iterate(miniBatch,rho)
-        print(z.local_params)
-        print("params",z.params)
-        print("batch",z.batch_params)
         LL.append(z.lower_bound)
         print(z.getLowerBoundterms(miniBatch))
         print("Lower Bound at iteration",iteration,"is ",z.lower_bound)
@@ -512,6 +493,42 @@ if __name__ == '__main__':
 #===============================================================================
 # DEPRECATED STUFF. KEEP HERE JUST IN CASE
 #===============================================================================
+
+   #=======================================================================
+        # Nested scan for the calculation of the multinomial bound
+        #=======================================================================
+#         def oneStep(s_index,curr,tau,q_k,k,add_index):
+#             return ifelse(T.gt(k,0),curr+T.psi(tau[s_index,0])*T.sum(q_k[s_index+add_index:k+1]),curr)
+#          
+#         def inner_loop(k,tau,q_k,add_index):
+#            
+#             zero=T.constant(0).astype('int64')
+#  
+#             s_indices=ifelse(T.gt(k,zero),T.arange(k),T.arange(0,1))
+#  
+#             n_steps=ifelse(T.gt(k-add_index,zero),k-add_index,T.constant(1).astype('int64'))
+#  
+#             outputs,_=theano.scan(fn=oneStep,
+#                                         sequences=s_indices,
+#                                         outputs_info=T.constant(.0),
+#                                         non_sequences=[tau,q_k,k,add_index],
+#                                         )
+#             #print("outputs",outputs.type)
+#             outputs=outputs[-1]
+#             return outputs
+#          
+#         add_index=T.constant(1).astype(('int64'))
+#         sec_sum,updates=theano.scan(fn=inner_loop,
+#                                       sequences=T.arange(K),
+#                                       non_sequences=[t_tau,q_k,add_index],
+#                                       )
+#          
+#         #all I need to change for the second sum are the indices
+#         add_index_zero=T.constant(0).astype('int64')
+#         third_sum,up=theano.scan(fn=inner_loop,
+#                                       sequences=T.arange(K),
+#                                       non_sequences=[t_tau,q_k,add_index_zero],
+#                                       )
  # log_x_calc,_=theano.scan(lambda i, ts,tm,tmu,tl,x,ta,tb,D,N: -0.5*D*T.log(2*np.pi)+0.5*T.log(T.psi(ta)-T.log(tb))-0.5*(ta/tb)*(T.dot(x[i,:],x[i,:].T)-2*T.dot(T.dot(tmu,tm[i,:].T).T,x[i,:].T)\
 #                                                                                                                                         +T.sum(T.nlinalg.trace(t_s[i,:].dimshuffle('x',0))\
 #                                                                                                                                                +T.dot(tm[i,:],tm[i,:].T)*(T.nlinalg.trace(t_l)+T.diag(T.dot(tmu.T,tmu))))),
