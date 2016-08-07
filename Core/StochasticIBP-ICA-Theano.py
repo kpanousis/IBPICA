@@ -130,7 +130,26 @@ class IBP_ICA:
         batch_gradients=self.batchGradientFunction(*(local_params+self.params+self.batch_params),x=x,xi=self.xi,K=self.K,D=self.D,S=self.batch_size)
         
         return batch_gradients
+    
+    def calculate_intermediate_params(self,gradients,batch_gradients):
+        intermediate_values=[0]*len(self.params)
+        intermediate_values=self.params[:]
         
+        intermediate_batch_values=[0]*len(self.batch_params)
+        intermediate_batch_values=self.batch_params[:]
+        for iteration in range(10):
+            for i in range(len(self.params)):
+                if (i==1):
+                    intermediate_values[i]+=0.01*gradients[i]
+                    continue
+                intermediate_values[i]=np.exp(np.log(intermediate_values[i])+0.01*gradients[i])
+            for i in range(len(self.batch_params)):
+                if (i==len(self.batch_params)-2):
+                    intermediate_batch_values[i]+=0.01*batch_gradients[i]
+                    continue
+                intermediate_batch_values[i]=np.exp(np.log(intermediate_batch_values[i])+0.01*batch_gradients[i])
+        return intermediate_values,intermediate_batch_values
+            
     #===========================================================================
     # Gradient step for updating the parameters
     #===========================================================================
@@ -138,14 +157,19 @@ class IBP_ICA:
         '''
         Update the global parameters with a gradient step
         '''
+        
+        intermediate_values,intemediate_batch_values=self.calculate_intermediate_params(gradients, batch_gradients)
+        
         print("Updating Global Parameters...")
         for i in range(len(self.params)):
-            self.params[i]*=(1.0-rho)
-            self.params[i]+=rho*gradients[i]
+            self.params[i]*=(1-rho)
+            self.params[i]+=rho*intermediate_values[i]
         for i in range(len(self.batch_params)):
-            self.batch_params[i]*=(1.0-rho)
-            self.batch_params[i]+=(rho/current_batch_size)*(batch_gradients[i])
-        print(self.params)
+            self.batch_params[i]*=(1-rho)
+            self.batch_params[i]+=(rho/S)*intemediate_batch_values[i]
+        #print(self.params)
+        #print(self.batch_params)
+        #print(self.local_params)
         
     #===========================================================================
     # Perform one iteration for the algorithm
@@ -194,21 +218,22 @@ class IBP_ICA:
         old_values.append(np.array(self.local_params[1],copy=True))
         old_values.append(np.array(self.local_params[2],copy=True))
 
-        tolerance=10**-3
+        tolerance=5*10**-3
         while True:
             gradients=self.localGradientFunction(*(self.local_params+self.params+self.batch_params),x=miniBatch,xi=self.xi,K=self.K,D=self.D,S=self.batch_size)
             self.local_params[0]=np.exp(np.log(self.local_params[0])+0.01*gradients[0])
 
             gradients=self.localGradientFunction(*(self.local_params+self.params+self.batch_params),x=miniBatch,xi=self.xi,K=self.K,D=self.D,S=self.batch_size)
-            self.local_params[1]=np.exp(np.log(self.local_params[1])+0.01*gradients[1])
+            self.local_params[1]=self.local_params[1]+0.01*gradients[1]
+            
             gradients=self.localGradientFunction(*(self.local_params+self.params+self.batch_params),x=miniBatch,xi=self.xi,K=self.K,D=self.D,S=self.batch_size)
             self.local_params[2]=np.exp(np.log(self.local_params[2])+0.01*gradients[2])
             
-            print('--------------------------------------------------------------')
-            print(abs(norm(old_values[0]).astype(np.float64)-norm(self.local_params[0]).astype(np.float64)))
-            print(abs(norm(old_values[1]).astype(np.float64)-norm(self.local_params[1]).astype(np.float64)))
-            print(abs(norm(old_values[1]).astype(np.float64)-norm(self.local_params[2]).astype(np.float64)))
-            print('--------------------------------------------------------------')
+#             print('--------------------------------------------------------------')
+#             print(abs(norm(old_values[0]).astype(np.float64)-norm(self.local_params[0]).astype(np.float64)))
+#             print(abs(norm(old_values[1]).astype(np.float64)-norm(self.local_params[1]).astype(np.float64)))
+#             print(abs(norm(old_values[2]).astype(np.float64)-norm(self.local_params[2]).astype(np.float64)))
+#             print('--------------------------------------------------------------')
 
 
             #check convergence
@@ -234,14 +259,14 @@ class IBP_ICA:
         print("Creating gradient functions...")
         
         print("\t Initializing prior parameters...")
-        a=T.constant(2.0*4,dtype='float64')
-        b=T.constant(2.0*4,dtype='float64')
-        c=T.constant(2.0*4,dtype='float64')
-        f=T.constant(2.0*4,dtype='float64')
-        g_1=T.constant(2.0*4,dtype='float64')
-        g_2=T.constant(2.0*4,dtype='float64')
-        e_1=T.constant(2.0*4,dtype='float64')
-        e_2=T.constant(2.0*4,dtype='float64')
+        a=T.constant(2.0,dtype='float64')
+        b=T.constant(2.0,dtype='float64')
+        c=T.constant(2.0,dtype='float64')
+        f=T.constant(2.0,dtype='float64')
+        g_1=T.constant(2.0,dtype='float64')
+        g_2=T.constant(2.0,dtype='float64')
+        e_1=T.constant(2.0,dtype='float64')
+        e_2=T.constant(2.0,dtype='float64')
 
         K=T.scalar('K',dtype='int64')
         D=T.scalar('D',dtype='int64')      
@@ -253,7 +278,10 @@ class IBP_ICA:
         
         #create the Theano variables
         #tilde_a,tilde_b,tilde_gamma_1 and tilde_gamma_2 are scalars
-        t_a,t_b,t_g_1,t_g_2=T.fscalars('t_a','t_b','t_g_1','t_g_2')
+        t_a=T.scalar('t_a',dtype='float64')
+        t_b=T.scalar('t_b',dtype='float64')
+        t_g_1=T.scalar('t_g_1',dtype='float64')
+        t_g_2=T.scalar('t_g_2',dtype='float64')
         
         #tilde_eta_1,tilde_eta_2,tilde_xi,tilde_l,tilde_mu,omega,tilde_s, tilde_m and zeta are matrices
         t_e_1,t_e_2,t_xi,t_l,t_mu,omega,t_s,t_m=T.fmatrices('t_e_1','t_e_2','t_xi','t_l','t_mu','omega','t_s','t_m')
@@ -262,7 +290,11 @@ class IBP_ICA:
         zeta=T.ftensor3('zeta')
     
         #the rest are columns
-        t_c,t_f,t_tau,h_tau =T.fcols('t_c','t_f','t_tau','h_tau')
+        t_c=T.col('t_c',dtype='float64')
+        t_f=T.col('t_f',dtype='float64')
+        t_tau=T.col('t_tau',dtype='float64')
+        h_tau=T.col('h_tau',dtype='float64')
+        
         
                
         #take the log of the original parameters
@@ -308,16 +340,16 @@ class IBP_ICA:
         q_k=T.exp(T.psi(eh_tau)+cs-T.cumsum(T.psi(et_tau+eh_tau),0))
         q_k/=T.sum(q_k)
        
-     
+        
     
         #check these FOR CORRECTNESS
-        try_sum,_=theano.scan(lambda i, qk,ttau: ifelse(T.gt(i,0),T.sum(T.psi(ttau[:i-1])*(T.sum(qk[:i])-T.cumsum(qk[:i-1]))),0.),
+        try_sum,_=theano.scan(lambda i, qk,ttau: ifelse(T.gt(i,0),T.sum(T.psi(ttau[:i-1])*(T.sum(qk[:i])-T.cumsum(qk[:i-1]))),T.constant(0.0,dtype='float64')),
                             sequences=T.arange(K),
                             non_sequences=[q_k,et_tau],
                             strict=True
                             )
         
-        try_sum2,_=theano.scan(lambda i, qk,ttau,htau: ifelse(T.gt(i,0),T.sum(T.psi(ttau[:i]+htau[:i])*(T.cumsum(qk[:i])[::-1])),0.),
+        try_sum2,_=theano.scan(lambda i, qk,ttau,htau: ifelse(T.gt(i,0),T.sum(T.psi(ttau[:i]+htau[:i])*(T.cumsum(qk[:i])[::-1])),T.constant(0.0,dtype='float64')),
                             sequences=T.arange(K),
                             non_sequences=[q_k,et_tau,eh_tau],
                             strict=True
@@ -505,7 +537,13 @@ class IBP_ICA:
         dera=T.grad(likelihood,lt_a)
         self.gradafunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D,S],dera,allow_input_downcast=True,on_unused_input='warn')
         
-
+        #DEBUG
+        
+        self.multFunction=theano.function([t_tau,h_tau,K],mult_bound,allow_input_downcast=True)
+        self.qfunv=theano.function([t_tau,h_tau],q_k,allow_input_downcast=True)
+        
+        
+        #END DEBUG
         self.gradientFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D,S],derivatives,allow_input_downcast=True)
         self.localGradientFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D,S],derivatives_local,allow_input_downcast=True)
         self.batchGradientFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D,S],derivatives_batch,allow_input_downcast=True)
@@ -537,18 +575,16 @@ if __name__ == '__main__':
     z=IBP_ICA(K,D,J,S,lower_bound)
     
     x,G,y=z.create_synthetic_data(N)
-        #sample the data 
-    random_indices=np.random.randint(0,len(x),S)
-    miniBatch=x[random_indices,:]
+    
     
     z.init_params()
     z.createGradientFunctions()
     LL=[]
-    print(z.lowerBoundFunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
+    #print(z.lowerBoundFunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
     #print(z.gradyfunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
     #print(z.gradx(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
     #print(z.gradent(K=z.K,t_s=z.local_params[0]))
-    print('sup',z.gradafunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
+    #print('sup',z.gradafunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
 
     iteration=1
     while True:
@@ -556,12 +592,24 @@ if __name__ == '__main__':
         rho=(iteration+1.0)**(-.75)
         iteration+=1
         
+        #sample the data 
+        random_indices=np.random.randint(0,len(x),S)
+        miniBatch=x[random_indices,:]
+        print(z.lowerBoundFunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
+        print(z.likelihoodFunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
+        
+        #debug
+        print("mukt",z.multFunction(t_tau=z.params[0],h_tau=z.params[2],K=z.K))
+        print("qk",z.qfunv(t_tau=z.params[0],h_tau=z.params[2]))
+        
         z.lower_bound=0
         z.iterate(miniBatch,rho)
+        print(z.local_params)
+        print(z.params)
+        print(z.batch_params)
         LL.append(z.lower_bound)
-        print(z.lowerBoundFunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
         print("Lower Bound at iteration",iteration,"is ",z.lower_bound)
-        if (iteration>1):
+        if (iteration>10):
             break
         
     
