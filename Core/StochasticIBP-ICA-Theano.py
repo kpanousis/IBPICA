@@ -128,26 +128,34 @@ class IBP_ICA:
         x=miniBatch[s,:].reshape(1,-1)
         x=np.repeat(x,len(miniBatch),axis=0)
         batch_gradients=self.batchGradientFunction(*(local_params+self.params+self.batch_params),x=x,xi=self.xi,K=self.K,D=self.D,S=self.batch_size)
-        
+       
         return batch_gradients
     
     def calculate_intermediate_params(self,gradients,batch_gradients):
         intermediate_values=[0]*len(self.params)
-        intermediate_values=self.params[:]
+        for i in range(len(intermediate_values)):
+            intermediate_values[i]=np.array(self.params[i],copy=True)
         
         intermediate_batch_values=[0]*len(self.batch_params)
-        intermediate_batch_values=self.batch_params[:]
-        for iteration in range(10):
+        for i in range(len(intermediate_batch_values)):
+            intermediate_batch_values[i]=np.array(self.batch_params[i],copy=True)
+        
+        print(batch_gradients[1])
+        time.sleep(20)
+        for iteration in range(50):
             for i in range(len(self.params)):
                 if (i==1):
-                    intermediate_values[i]+=0.01*gradients[i]
+                    intermediate_values[i]+=0.1*gradients[i]
                     continue
                 intermediate_values[i]=np.exp(np.log(intermediate_values[i])+0.01*gradients[i])
             for i in range(len(self.batch_params)):
                 if (i==len(self.batch_params)-2):
-                    intermediate_batch_values[i]+=0.01*batch_gradients[i]
+                    intermediate_batch_values[i]+=0.1*batch_gradients[i]
                     continue
                 intermediate_batch_values[i]=np.exp(np.log(intermediate_batch_values[i])+0.01*batch_gradients[i])
+        print(intermediate_batch_values[0]-self.batch_params[0])
+        print(intermediate_values[0]-self.params[0])
+        time.sleep(30)
         return intermediate_values,intermediate_batch_values
             
     #===========================================================================
@@ -158,7 +166,7 @@ class IBP_ICA:
         Update the global parameters with a gradient step
         '''
         
-        intermediate_values,intemediate_batch_values=self.calculate_intermediate_params(gradients, batch_gradients)
+        intermediate_values,intermediate_batch_values=self.calculate_intermediate_params(gradients, batch_gradients)
         
         print("Updating Global Parameters...")
         for i in range(len(self.params)):
@@ -166,7 +174,7 @@ class IBP_ICA:
             self.params[i]+=rho*intermediate_values[i]
         for i in range(len(self.batch_params)):
             self.batch_params[i]*=(1-rho)
-            self.batch_params[i]+=(rho/S)*intemediate_batch_values[i]
+            self.batch_params[i]+=(rho/S)*intermediate_batch_values[i]
         #print(self.params)
         #print(self.batch_params)
         #print(self.local_params)
@@ -580,6 +588,9 @@ if __name__ == '__main__':
     z.init_params()
     z.createGradientFunctions()
     LL=[]
+    #sample the data 
+    random_indices=np.random.randint(0,len(x),S)
+    miniBatch=x[random_indices,:]
     #print(z.lowerBoundFunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
     #print(z.gradyfunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
     #print(z.gradx(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
@@ -592,16 +603,9 @@ if __name__ == '__main__':
         rho=(iteration+1.0)**(-.75)
         iteration+=1
         
-        #sample the data 
-        random_indices=np.random.randint(0,len(x),S)
-        miniBatch=x[random_indices,:]
+        
         print(z.lowerBoundFunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
-        print(z.likelihoodFunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
-        
-        #debug
-        print("mukt",z.multFunction(t_tau=z.params[0],h_tau=z.params[2],K=z.K))
-        print("qk",z.qfunv(t_tau=z.params[0],h_tau=z.params[2]))
-        
+                
         z.lower_bound=0
         z.iterate(miniBatch,rho)
         print(z.local_params)
