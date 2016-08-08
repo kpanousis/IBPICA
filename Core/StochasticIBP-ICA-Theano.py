@@ -127,54 +127,70 @@ class IBP_ICA:
         local_params=[t_s,t_m,zeta]
         x=miniBatch[s,:].reshape(1,-1)
         x=np.repeat(x,len(miniBatch),axis=0)
-        batch_gradients=self.batchGradientFunction(*(local_params+self.params+self.batch_params),x=x,xi=self.xi,K=self.K,D=self.D,S=self.batch_size)
-       
-        return batch_gradients
+        
+        batch_params=[0]*len(self.batch_params)
+        batch_params=[np.array(z,copy=True) for z in self.batch_params]
+        for iteration in range(1):
+            #print(batch_params[2])
+            batch_gradients=self.batchGradientFunction(*(local_params+self.params+batch_params),x=x,xi=self.xi,K=self.K,D=self.D,S=self.batch_size)
+            for i in range(len(batch_params)):
+                if (i==len(batch_params)-2):
+                    batch_params[i]+=0.01*batch_gradients[i]
+                    continue
+                batch_params[i]=np.exp(np.log(batch_params[i])+0.01*batch_gradients[i])
+        return batch_params
     
-    def calculate_intermediate_params(self,gradients,batch_gradients):
+    #CALCULATE INTERMEDIATE PARAMS FOR THE GLOBAL NON-BATCH VARIABLES
+    def calculate_intermediate_params(self,miniBatch):
+        
         intermediate_values=[0]*len(self.params)
         for i in range(len(intermediate_values)):
             intermediate_values[i]=np.array(self.params[i],copy=True)
         
-        intermediate_batch_values=[0]*len(self.batch_params)
-        for i in range(len(intermediate_batch_values)):
-            intermediate_batch_values[i]=np.array(self.batch_params[i],copy=True)
-        
-        print(batch_gradients[1])
-        time.sleep(20)
-        for iteration in range(50):
+       
+        for iteration in range(1):
+            gradients=self.gradientFunction(*(self.local_params+intermediate_values+self.batch_params),x=miniBatch,xi=self.xi,K=self.K,D=self.D,S=self.batch_size)
             for i in range(len(self.params)):
                 if (i==1):
-                    intermediate_values[i]+=0.1*gradients[i]
+                    intermediate_values[i]+=0.01*gradients[i]
                     continue
                 intermediate_values[i]=np.exp(np.log(intermediate_values[i])+0.01*gradients[i])
-            for i in range(len(self.batch_params)):
-                if (i==len(self.batch_params)-2):
-                    intermediate_batch_values[i]+=0.1*batch_gradients[i]
-                    continue
-                intermediate_batch_values[i]=np.exp(np.log(intermediate_batch_values[i])+0.01*batch_gradients[i])
-        print(intermediate_batch_values[0]-self.batch_params[0])
-        print(intermediate_values[0]-self.params[0])
-        time.sleep(30)
-        return intermediate_values,intermediate_batch_values
+           
+        return intermediate_values
+    
+    #DIFFERENT FOR THE BATCH
+#     def calculate_intermediate_batch_params(self,batch_gradients):
+#         batch=[0]*len(self.batch_params)
+#         for i in range(len(batch)):
+#             batch[i]=np.array(self.batch_params[i],copy=True)
+#         
+#         for iteration in range(20):
+#             for i in range(len(self.batch_params)):
+#                 if (i==len(self.batch_params)-2):
+#                     batch[i]+=0.01*batch_gradients[i]
+#                     continue
+#                 batch[i]+=np.exp(np.log(batch[i])+0.01*batch_gradients[i])
+#         print(batch)
+#         time.sleep(20)
+#         return batch
             
     #===========================================================================
     # Gradient step for updating the parameters
     #===========================================================================
-    def updateParams(self,gradients,batch_gradients,current_batch_size,rho):
+    def updateParams(self,miniBatch,gradients,batch_update,current_batch_size,rho):
         '''
         Update the global parameters with a gradient step
         '''
         
-        intermediate_values,intermediate_batch_values=self.calculate_intermediate_params(gradients, batch_gradients)
-        
+        intermediate_values=self.calculate_intermediate_params(miniBatch)
         print("Updating Global Parameters...")
         for i in range(len(self.params)):
             self.params[i]*=(1-rho)
             self.params[i]+=rho*intermediate_values[i]
+            
         for i in range(len(self.batch_params)):
             self.batch_params[i]*=(1-rho)
-            self.batch_params[i]+=(rho/S)*intermediate_batch_values[i]
+            self.batch_params[i]+=(rho/S)*batch_update[i]
         #print(self.params)
         #print(self.batch_params)
         #print(self.local_params)
@@ -187,12 +203,20 @@ class IBP_ICA:
         Function that represents one iteration of the SVI IBP ICA algorithm
         '''
         self.updateLocalParams(miniBatch)
+        
+        #for the non-batch global gradients
         gradients=self.getGradients(miniBatch)
-        batch_gradients=[0]*len(self.batch_params)
+        
+        #for batch global gradients 
+        intermediate_values_batch_all=[0]*len(self.batch_params)
         print('Batch gradient calculation...')
         for s in range(len(miniBatch)):
-            batch_gradients+=self.getBatchGradients(miniBatch, s)
-        self.updateParams(gradients, batch_gradients, len(miniBatch), rho)
+            batch_params=self.getBatchGradients(miniBatch, s)
+            #print(batch_params)
+            #time.sleep(300)
+            intermediate_values_batch_all=[x+y for x,y in zip(intermediate_values_batch_all,batch_params)]
+        print(intermediate_values_batch_all)
+        self.updateParams(miniBatch,gradients, intermediate_values_batch_all, len(miniBatch), rho)
     
     #===========================================================================
     # Calculate and return the lower bound
@@ -542,10 +566,10 @@ class IBP_ICA:
 #         self.gradx=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D,S],derx,allow_input_downcast=True,on_unused_input='warn')        
 #         self.gradent=theano.function([t_s,K],derent,allow_input_downcast=True,on_unused_input='warn')
 #         
+       
+        #DEBUG
         dera=T.grad(likelihood,lt_a)
         self.gradafunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D,S],dera,allow_input_downcast=True,on_unused_input='warn')
-        
-        #DEBUG
         
         self.multFunction=theano.function([t_tau,h_tau,K],mult_bound,allow_input_downcast=True)
         self.qfunv=theano.function([t_tau,h_tau],q_k,allow_input_downcast=True)
