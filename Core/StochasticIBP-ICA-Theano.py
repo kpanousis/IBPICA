@@ -20,13 +20,32 @@ from six.moves import cPickle
 
 class IBP_ICA:
     
-    def __init__(self,K,D,J, batch_size,lower_bound):
+    def __init__(self,K,D,J, S,N,rho):
+        '''
+        Initialize a IBP_ICA instance.
+        
+        Parameters
+        ----------
+        K: int
+            The number of active features
+        D: int
+            The second dimension of the dataset
+        J: int
+            The number of mixtures
+        S: int
+            The length of the minibatch
+        N: int
+            The size of the original dataset
+        rho: float
+            The step size for each iteration
+        '''
+        
         self.K=K
         self.D=D
         self.J=J
-        self.batch_size=batch_size
-        self.lower_bound=lower_bound
-        self.likelihood=0
+        self.S=S
+        self.N=N
+        self.rho=rho
     
     
     #===========================================================================
@@ -34,51 +53,65 @@ class IBP_ICA:
     #===========================================================================
     def init_params(self):
         '''
-        Initialize the parameters to pass to the model
+        Initialize the posterior parameters
+        
+        Returns
+        -------
+        params: list
+            List containing the tilde_tau, omega, hat_tau, tilde_a, tilde_c, tilde_f, tilde_gamma_1 and tilde_gamma_2 parameters
+        
+        local_params: list
+            The local parameters of the model, namely, tilde_s, tilde_m and zeta
+        
+        batch_params: list
+            The global parameters that need batch update: tilde_eta_1, tilde_eta_2, tilde_xi, tilde_lambda, tilde_mu and tilde_b
         '''
-        xi=np.ones((self.K,self.J))
+        xi=2*np.ones((self.K,self.J))
         
-        #scalars
-        t_a=2.0
-        t_b=2.0
-        t_g_1=2.0
-        t_g_2=2.0
+        #=======================================================================
+        # The scalar parameters
+        #=======================================================================
+        rt_a=np.log(2.0)
+        rt_b=np.log(2.0)
+        rt_g_1=np.log(2.0)
+        rt_g_2=np.log(2.0)
         
-        #matrices
-        t_e_1=4*np.ones((self.K,self.J))
-        t_e_2=4*np.ones((self.K,self.J))
-        t_xi=2*np.ones((self.K,self.J))
-        #t_l=np.random.gamma(1,1,size=(self.D,self.K))
-        #t_mu=np.random.gamma(1,1,size=(self.D,self.K))
-        t_l=2*np.ones((self.D,self.K))
+        #=======================================================================
+        # matrices
+        #=======================================================================
+        rt_e_1=np.log(4.0)*np.ones((self.K,self.J))
+        rt_e_2=np.log(4.0)*np.ones((self.K,self.J))
+        rt_xi=np.log(2.0)*np.ones((self.K,self.J))
+        rt_l=np.log(2.0)*np.ones((self.D,self.K))
         t_mu=np.ones((self.D,self.K))
-
         omega=np.ones((self.D,self.K))
+        rt_s=np.log(2.0)*np.ones((self.S,self.K))
+        t_m=np.ones((self.S,self.K))
         
-        #more sophisticated initialization
-        #t_s=np.random.gamma(1,1,size=(self.batch_size,self.K))
-        t_s=2*np.ones((self.batch_size,self.K))
-        #here to run PCA
-        #t_m=np.random.gamma(1,1,size=(self.batch_size,self.K))
-        t_m=np.ones((self.batch_size,self.K))
-        #tensor
-        #zeta=np.random.random(size=(self.batch_size,self.K,self.J))
-        zeta=2*np.ones((self.batch_size,self.K,self.J))
-        for s in range(self.batch_size):
-            zeta[s,:,:]/=zeta[s,:,:].sum(1).reshape(-1,1)
+        #=======================================================================
+        # tensor
+        #=======================================================================
+        #zeta=np.random.random(size=(self.S,self.K,self.J))
+        rzeta=np.log(2.0)*np.ones((self.S,self.K,self.J))
+        for s in range(self.S):
+            rzeta[s,:,:]/=rzeta[s,:,:].sum(1).reshape(-1,1)
         
-        #tcolumns
-        t_c=2*np.ones((self.K,1))
-        t_f=2*np.ones((self.K,1))
-        t_tau=2*np.ones((self.K,1))
-        h_tau=2*np.ones((self.K,1))
+        #=======================================================================
+        # vectors
+        #=======================================================================
+        rt_c=np.log(2.0)*np.ones((self.K,1))
+        rt_f=np.log(2.0)*np.ones((self.K,1))
+        rt_tau=np.log(2.0)*np.ones((self.K,1))
+        rh_tau=np.log(2.0)*np.ones((self.K,1))
         
 #         print((t_a/t_b)*(t_mu**2+t_l).sum(0)+(zeta*(t_e_1/t_e_2)).sum(2))
         
-        #the first three are the local params
-        self.params=[t_tau,omega,h_tau,t_a,t_c,t_f,t_g_1,t_g_2]
-        self.local_params=[t_s,t_m,zeta]
-        self.batch_params=[t_e_1,t_e_2,t_xi,t_l,t_mu,t_b]
+        #=======================================================================
+        # The order is very important 
+        #=======================================================================
+        self.params=[rt_tau,omega,rh_tau,rt_a,rt_c,rt_f,rt_g_1,rt_g_2]
+        self.local_params=[rt_s,t_m,rzeta]
+        self.batch_params=[rt_e_1,rt_e_2,rt_xi,rt_l,t_mu,rt_b]
         self.xi=xi
     
     
@@ -89,151 +122,183 @@ class IBP_ICA:
     def feature_update(self):
         '''
         Function for using Gibbs sampling to update the number of features.
-        To be implemented today or tomorrow (13-14/07)
+        To be implemented 
         '''
         pass
     
+            
     #===========================================================================
-    # Get the gradients
-    #===========================================================================
-    def getGradients(self,miniBatch):
-        '''
-        Get the gradients for all the parameters of the model
-        '''
-        print('Getting the gradients...')
-        total_gradients=[0]*len(self.params)
-        gradients=self.gradientFunction(*(self.local_params+self.params+self.batch_params),x=miniBatch,xi=self.xi,K=self.K,D=self.D,S=self.batch_size)
-        
-        return gradients
-    
-    #===========================================================================
-    # Get the batch gradients
+    # Get the gradients for the global batch parameters
     #===========================================================================
     def getBatchGradients(self,miniBatch,s):
+        '''
+        Calculates the gradients for the batch parameters. For each s, get gradient and perform gradient ascent to get the solution?
         
+        Parameters
+        ----------
+        
+        miniBatch: ndarray
+            Array containing the subset of the data to calculate the gradients
+        s: int
+            Index to the current element of the minibatch
+            
+        Returns
+        -------
+        batch_params: list
+            List of ndarrays with the gradients for the datapoint s
+        '''
+        
+        #Arrange the local parameters as if we have x_s N times
         t_s=self.local_params[0][s,:].reshape(1,-1)
-        t_s=np.repeat(t_s,len(miniBatch),axis=0)
+        t_s=np.repeat(t_s,self.N,axis=0)
         
         t_m=self.local_params[1][s,:].reshape(1,-1)
-        t_m=np.repeat(t_m,len(miniBatch),axis=0)
+        t_m=np.repeat(t_m,self.N,axis=0)
         
         #stack the same elements to get the N*zeta_{skj}
         zeta=self.local_params[2][s,:,:]
         zeta=zeta[newaxis,:,:]
-        zeta=np.repeat(zeta, len(miniBatch),axis=0)
+        zeta=np.repeat(zeta,self.N,axis=0)
         
-        
-        #get only the elements associated with the sth observation
+        #temporary local params for gradient calculation
         local_params=[t_s,t_m,zeta]
-        x=miniBatch[s,:].reshape(1,-1)
-        x=np.repeat(x,len(miniBatch),axis=0)
         
+        #Get observation x_s from the dataset and repeat N times
+        x=miniBatch[s,:].reshape(1,-1)
+        x=np.repeat(x,self.N,axis=0)
+        
+        #since we update the parameters for some time, create a copy and perform gradient ascent there
         batch_params=[0]*len(self.batch_params)
         batch_params=[np.array(z,copy=True) for z in self.batch_params]
-        for iteration in range(1):
-            #print(batch_params[2])
-            batch_gradients=self.batchGradientFunction(*(local_params+self.params+batch_params),x=x,xi=self.xi,K=self.K,D=self.D,S=self.batch_size)
+        
+        #=======================================================================
+        # some gradient ascent thingy here. seems necessary but not sure. 
+        # If necessary we also need a convergence criterion.
+        #=======================================================================
+        for iteration in range(50):
+
+            batch_gradients=self.batchGradientFunction(*(local_params+self.params+batch_params),x=x,xi=self.xi,K=self.K,D=self.D,S=self.S,J=self.J)
             for i in range(len(batch_params)):
-                if (i==len(batch_params)-2):
-                    batch_params[i]+=0.01*batch_gradients[i]
-                    continue
-                batch_params[i]=np.exp(np.log(batch_params[i])+0.01*batch_gradients[i])
+                batch_params[i]+=0.01*batch_gradients[i]
+            
+            ########
+            
+            #put convergence here?
+            
+            ######
         return batch_params
     
-    #CALCULATE INTERMEDIATE PARAMS FOR THE GLOBAL NON-BATCH VARIABLES
+
+    #===========================================================================
+    # Intermediate values for the non batch global parameters
+    #===========================================================================
     def calculate_intermediate_params(self,miniBatch):
+        '''
+        Function to calculate the intermediate values for the non-batch global parameters.
+        As before since we cant set the gradient to zero to get the update for the parameters, 
+        we need to perform gradient ascent to get the value(?)
+        
+        Parameters
+        ----------
+        
+        miniBatch: ndarray
+            The minibatch of the dataset in which we calculate the gradients
+        
+        Returns
+        -------
+        gradients: list
+            List of ndarrays containing the intermediate values for the non batch global parameters
+        '''
         
         intermediate_values=[0]*len(self.params)
+        
+        #Since we are changing some stuff, assign the original params to the intermediate values matrix
         for i in range(len(intermediate_values)):
             intermediate_values[i]=np.array(self.params[i],copy=True)
         
-       
-        for iteration in range(1):
-            gradients=self.gradientFunction(*(self.local_params+intermediate_values+self.batch_params),x=miniBatch,xi=self.xi,K=self.K,D=self.D,S=self.batch_size)
+        #=======================================================================
+        # some gradient ascent thingy here. seems necessary but not sure. 
+        # If necessary we also need a convergence criterion.
+        #=======================================================================
+        for iteration in range(50):
+            gradients=self.gradientFunction(*(self.local_params+intermediate_values+self.batch_params),x=miniBatch,xi=self.xi,K=self.K,D=self.D,S=self.S,J=self.J)
             for i in range(len(self.params)):
-                if (i==1):
-                    intermediate_values[i]+=0.01*gradients[i]
-                    continue
-                intermediate_values[i]=np.exp(np.log(intermediate_values[i])+0.01*gradients[i])
+                intermediate_values[i]+=0.01*gradients[i]
            
-        return intermediate_values
+        return gradients
     
-    #DIFFERENT FOR THE BATCH
-#     def calculate_intermediate_batch_params(self,batch_gradients):
-#         batch=[0]*len(self.batch_params)
-#         for i in range(len(batch)):
-#             batch[i]=np.array(self.batch_params[i],copy=True)
-#         
-#         for iteration in range(20):
-#             for i in range(len(self.batch_params)):
-#                 if (i==len(self.batch_params)-2):
-#                     batch[i]+=0.01*batch_gradients[i]
-#                     continue
-#                 batch[i]+=np.exp(np.log(batch[i])+0.01*batch_gradients[i])
-#         print(batch)
-#         time.sleep(20)
-#         return batch
-            
+
     #===========================================================================
     # Gradient step for updating the parameters
     #===========================================================================
-    def updateParams(self,miniBatch,gradients,batch_update,current_batch_size,rho):
+    def updateParams(self,miniBatch,batch_update):
         '''
-        Update the global parameters with a gradient step
+        Update the global parameters with a gradient step.
+        Basically perform the last step of the current iteration for the Stochastic Variational Inference algorithm.
+        
+        Parameters
+        ----------
+        
+        miniBatch: ndarray
+            The minibatch of the dataset to calculate the gradients
+        
+        batch_update: list
+            List of ndarrays containing the intermediate values for the update of the batch global parameters
+            
         '''
         
+        #Get the intermediate values for the non batch global parameters
+        print('Global intermediate values...')
         intermediate_values=self.calculate_intermediate_params(miniBatch)
+        
+        #Ready for the final step for this iteration
         print("Updating Global Parameters...")
+        
+        #update the non batch global params
         for i in range(len(self.params)):
-            self.params[i]*=(1-rho)
-            self.params[i]+=rho*intermediate_values[i]
+            self.params[i]*=(1-self.rho)
+            self.params[i]+=self.rho*intermediate_values[i]
             
+        #update the batch global params
         for i in range(len(self.batch_params)):
-            self.batch_params[i]*=(1-rho)
-            self.batch_params[i]+=(rho/S)*batch_update[i]
-        #print(self.params)
-        #print(self.batch_params)
-        #print(self.local_params)
+            self.batch_params[i]*=(1-self.rho)
+            self.batch_params[i]+=(self.rho/self.S)*batch_update[i]
+       
         
     #===========================================================================
     # Perform one iteration for the algorithm
     #===========================================================================
-    def iterate(self,miniBatch,rho):
+    def iterate(self,miniBatch):
         '''
-        Function that represents one iteration of the SVI IBP ICA algorithm
+        Function that performs one iteration of the SVI IBP ICA algorithm. This includes:
+            1) Update the local parameters until convergence
+            2) Get the intermediate values for the batch gradients
+            3) Update Params:
+                3.1) Get intermediate values for the non batch global params
+                3.2) Gradient step for all the global parametes
+        
+        Parameters
+        ----------
+        
+        miniBatch: ndarray
+            miniBatch of the dataset with which we calculate the noisy gradients 
+            
         '''
+        
+        #update the local parameters
         self.updateLocalParams(miniBatch)
-        
-        #for the non-batch global gradients
-        gradients=self.getGradients(miniBatch)
-        
-        #for batch global gradients 
+                
+        #for the batch global parameters get the intermediate values 
+        print('Batch Parameters intermediate values calculation...')
         intermediate_values_batch_all=[0]*len(self.batch_params)
-        print('Batch gradient calculation...')
+        
+        #for each datapoint calculate gradient and sum over all datapoints
         for s in range(len(miniBatch)):
             batch_params=self.getBatchGradients(miniBatch, s)
-            #print(batch_params)
-            #time.sleep(300)
             intermediate_values_batch_all=[x+y for x,y in zip(intermediate_values_batch_all,batch_params)]
-        print(intermediate_values_batch_all)
-        self.updateParams(miniBatch,gradients, intermediate_values_batch_all, len(miniBatch), rho)
-    
-    #===========================================================================
-    # Calculate and return the lower bound
-    #===========================================================================
-    def getLowerBound(self,data):
-        lower_bound=self.lowerBoundFunction(*(self.local_params+self.params+self.batch_params),xi=self.xi,K=self.K,x=data,S=self.batch_size)    
-        return lower_bound
-    
-    
-    #===========================================================================
-    # Get the entropy and the likelihood as separate terms for debugging
-    #===========================================================================
-    def getLowerBoundterms(self,data):
-        likelihood=self.likelihoodFunction(*(self.local_params+self.params+self.batch_params),xi=self.xi,K=self.K,x=data,D=self.D,S=self.batch_size)
-        entropy=self.entropyFunction(*(self.local_params+self.params+self.batch_params),K=self.K,D=self.D,S=self.batch_size)
-
-        return likelihood,entropy
+            
+        #update the parameters
+        self.updateParams(miniBatch, intermediate_values_batch_all)
     
     #===========================================================================
     # Update the local parameters with gradient steps until convergence
@@ -241,56 +306,65 @@ class IBP_ICA:
     def updateLocalParams(self,miniBatch):
         '''
         Update the local parameters for the IBP-ICA model until convergence
-        May need some modification here (need to update gradients after calculating something)
-        Maybe make something like local_gradient_function ?
+        
+        Parameters
+        ----------
+        
+        miniBatch: ndarray
+            The minibatch for this run of the algorithm
         '''
+        
         print("Updating local parameters...")
-        old_values=[]
-        old_values.append(np.array(self.local_params[0],copy=True))
-        old_values.append(np.array(self.local_params[1],copy=True))
-        old_values.append(np.array(self.local_params[2],copy=True))
-
-        tolerance=5*10**-3
+        
+        
+        #set tolerance for improvement
+        tolerance=5*10**-2
+        
+        #Update local params until convergence
         while True:
-            gradients=self.localGradientFunction(*(self.local_params+self.params+self.batch_params),x=miniBatch,xi=self.xi,K=self.K,D=self.D,S=self.batch_size)
-            self.local_params[0]=np.exp(np.log(self.local_params[0])+0.01*gradients[0])
+            
+            #Assign the original values to a new list for assessing convergence
+            old_values=[]
+            old_values.append(np.array(self.local_params[0],copy=True))
+            old_values.append(np.array(self.local_params[1],copy=True))
+            old_values.append(np.array(self.local_params[2],copy=True))
 
-            gradients=self.localGradientFunction(*(self.local_params+self.params+self.batch_params),x=miniBatch,xi=self.xi,K=self.K,D=self.D,S=self.batch_size)
+            gradients=self.localGradientFunction(*(self.local_params+self.params+self.batch_params),x=miniBatch,xi=self.xi,K=self.K,D=self.D,S=self.S,J=self.J)
+            self.local_params[0]=self.local_params[0]+0.01*gradients[0]
+
+            gradients=self.localGradientFunction(*(self.local_params+self.params+self.batch_params),x=miniBatch,xi=self.xi,K=self.K,D=self.D,S=self.S,J=self.J)
             self.local_params[1]=self.local_params[1]+0.01*gradients[1]
             
-            gradients=self.localGradientFunction(*(self.local_params+self.params+self.batch_params),x=miniBatch,xi=self.xi,K=self.K,D=self.D,S=self.batch_size)
-            self.local_params[2]=np.exp(np.log(self.local_params[2])+0.01*gradients[2])
-            
-#             print('--------------------------------------------------------------')
-#             print(abs(norm(old_values[0]).astype(np.float64)-norm(self.local_params[0]).astype(np.float64)))
-#             print(abs(norm(old_values[1]).astype(np.float64)-norm(self.local_params[1]).astype(np.float64)))
-#             print(abs(norm(old_values[2]).astype(np.float64)-norm(self.local_params[2]).astype(np.float64)))
-#             print('--------------------------------------------------------------')
+            gradients=self.localGradientFunction(*(self.local_params+self.params+self.batch_params),x=miniBatch,xi=self.xi,K=self.K,D=self.D,S=self.S,J=self.J)
+            self.local_params[2]=self.local_params[2]+0.01*gradients[2]
+                        
 
-
-            #check convergence
+            #Have the parameters converged?
             if (abs(norm(old_values[0])-norm(self.local_params[0]))<tolerance):
                 if (abs(norm(old_values[1])-norm(self.local_params[1]))<tolerance):
                     if (abs(norm(old_values[2])-norm(self.local_params[2]))<tolerance):
                         print("Local params converged...")
                         break
-            old_values=[]
-            old_values.append(np.array(self.local_params[0],copy=True))
-            old_values.append(np.array(self.local_params[1],copy=True))
-            old_values.append(np.array(self.local_params[2],copy=True))
-        print(self.local_params[0])
-            
+             
     #===========================================================================
     # Calculate the lower bound and create gradient functions for all parameters
     #===========================================================================
     def createGradientFunctions(self):
         '''
-        Create the lower bound and use T.grad to get the gradients for free
+        The main function of the implementation. 
+        Create the variational lower bound and take derivatives with respect to the parameters.
+        
+        In the current version the original parameters have been replaced with original=exp(new_param) and we take derivatives 
+        with respect to new_param. This is the log trick and is used for imposing positivity constraints on the needed parameters.
+        
+        This function assigns theano.functions to the IBP_ICA object.
+        
         '''
         
         print("Creating gradient functions...")
-        
         print("\t Initializing prior parameters...")
+        
+        #Some constant priors
         a=T.constant(2.0,dtype='float64')
         b=T.constant(2.0,dtype='float64')
         c=T.constant(2.0,dtype='float64')
@@ -300,111 +374,92 @@ class IBP_ICA:
         e_1=T.constant(2.0,dtype='float64')
         e_2=T.constant(2.0,dtype='float64')
 
-        K=T.scalar('K',dtype='int64')
-        D=T.scalar('D',dtype='int64')      
-        S=T.scalar('S',dtype='int64')
+        #Create some needed scalar variables
+        K=T.scalar('K',dtype='int32')
+        D=T.scalar('D',dtype='int32')      
+        S=T.scalar('S',dtype='int32')
+        J=T.scalar('J',dtype='int32')
         xi=T.matrix('xi',dtype='float64')
         
-        #data matrix
+        #The matrix for the data
         x=T.matrix('x',dtype='float64')
+         
         
-        #create the Theano variables
-        #tilde_a,tilde_b,tilde_gamma_1 and tilde_gamma_2 are scalars
-        t_a=T.scalar('t_a',dtype='float64')
-        t_b=T.scalar('t_b',dtype='float64')
-        t_g_1=T.scalar('t_g_1',dtype='float64')
-        t_g_2=T.scalar('t_g_2',dtype='float64')
-        
+        #Parameters that do not need the log trick
+        omega=T.fmatrix('omega')
+        t_mu=T.fmatrix('t_mu')
+        t_m=T.fmatrix('t_m')
+         
+        #need to be positive scalars, so create some y variables so that e.g., t_a=exp(t_a_y)
+        t_a_y=T.scalar('t_a_y',dtype='float64')
+        t_b_y=T.scalar('t_b_y',dtype='float64')
+        t_g_1_y=T.scalar('t_g_1_y',dtype='float64')
+        t_g_2_y=T.scalar('t_g_2_y',dtype='float64')
+         
         #tilde_eta_1,tilde_eta_2,tilde_xi,tilde_l,tilde_mu,omega,tilde_s, tilde_m and zeta are matrices
-        t_e_1,t_e_2,t_xi,t_l,t_mu,omega,t_s,t_m=T.fmatrices('t_e_1','t_e_2','t_xi','t_l','t_mu','omega','t_s','t_m')
-        
+        t_e_1_y,t_e_2_y,t_xi_y,t_l_y,t_s_y=T.fmatrices('t_e_1_y','t_e_2_y','t_xi_Y','t_l_y','t_s_y')
+         
         #the only tensor we got
-        zeta=T.ftensor3('zeta')
-    
+        zeta_y=T.ftensor3('zeta_y')
+     
         #the rest are columns
-        t_c=T.col('t_c',dtype='float64')
-        t_f=T.col('t_f',dtype='float64')
-        t_tau=T.col('t_tau',dtype='float64')
-        h_tau=T.col('h_tau',dtype='float64')
+        t_c_y=T.col('t_c_y',dtype='float64')
+        t_f_y=T.col('t_f_y',dtype='float64')
+        t_tau_y=T.col('t_tau_y',dtype='float64')
+        h_tau_y=T.col('h_tau_y',dtype='float64')
+         
+        #Reparametrize the original variables to be the exp of something in order to impose positivity constraint
+        t_g_1=T.exp(t_g_1_y)
+        t_g_2=T.exp(t_g_2_y)
+        t_e_1=T.exp(t_e_1_y)
+        t_e_2=T.exp(t_e_2_y)
+        t_a=T.exp(t_a_y)
+        t_b=T.exp(t_b_y)
+        t_c=T.exp(t_c_y)
+        t_f=T.exp(t_f_y)
+        t_l=T.exp(t_l_y)     
+        zeta=T.exp(zeta_y)
+        t_xi=T.exp(t_xi_y)
+        h_tau=T.exp(h_tau_y)
+        t_tau=T.exp(t_tau_y)
+        t_s=T.exp(t_s_y)
         
-        
-               
-        #take the log of the original parameters
-        lt_g_1=T.log(t_g_1)
-        lt_g_2=T.log(t_g_2)
-        lt_e_1=T.log(t_e_1)
-        lt_e_2=T.log(t_e_2)
-        lt_a=T.log(t_a)
-        lt_b=T.log(t_b)
-        lt_c=T.log(t_c)
-        lt_f=T.log(t_f)
-        lt_l=T.log(t_l)     
-        lzeta=T.log(zeta)
-        lt_xi=T.log(t_xi)
-        lh_tau=T.log(h_tau)
-        lt_tau=T.log(t_tau)
-        lt_s=T.log(t_s)
-        
-        #exp of the log
-        et_g_1=T.exp(lt_g_1)
-        et_g_2=T.exp(lt_g_2)
-        et_e_1=T.exp(lt_e_1)
-        et_e_2=T.exp(lt_e_2)
-        et_a=T.exp(lt_a)
-        et_b=T.exp(lt_b)
-        et_c=T.exp(lt_c)
-        et_f=T.exp(lt_f)
-        et_l=T.exp(lt_l)     
-        ezeta=T.exp(lzeta)
-        et_xi=T.exp(lt_xi)
-        eh_tau=T.exp(lh_tau)
-        et_tau=T.exp(lt_tau)
-        et_s=T.exp(lt_s)
-        
-         #calculate q_k
-#         q_k,up=theano.scan(lambda i, et_tau,eh_tau: T.exp(T.psi(eh_tau[i])+T.sum(T.psi(et_tau[:i-1]))-T.sum(T.psi(et_tau[:i]+eh_tau[:i]))),
-#                             sequences=T.arange(K),
-#                             non_sequences=[t_tau,h_tau])
-#         
-#         q_k/=T.sum(q_k)
-       
-        cs=T.cumsum(T.psi(et_tau),0)-T.psi(et_tau)
-        q_k=T.exp(T.psi(eh_tau)+cs-T.cumsum(T.psi(et_tau+eh_tau),0))
+        print('\t Creating the bound terms...')
+        #Calculate q_k as seen in Chatzis et al.
+        cs=T.cumsum(T.psi(t_tau),0)-T.psi(t_tau)
+        q_k=T.exp(T.psi(h_tau)+cs-T.cumsum(T.psi(t_tau+h_tau),0))
         q_k/=T.sum(q_k)
        
         
     
-        #check these FOR CORRECTNESS
-        try_sum,_=theano.scan(lambda i, qk,ttau: ifelse(T.gt(i,0),T.sum(T.psi(ttau[:i-1])*(T.sum(qk[:i])-T.cumsum(qk[:i-1]))),T.constant(0.0,dtype='float64')),
+        #I think these are correct but I also have a nested scan in the deprecated stuff just in case
+        try_sum,_=theano.scan(lambda i, qk,ttau: ifelse(T.gt(i,0),T.sum(T.psi(ttau[:i])*(T.sum(qk[:i])-T.cumsum(qk[:i-1]))),T.constant(0.0,dtype='float64')),
                             sequences=T.arange(K),
-                            non_sequences=[q_k,et_tau],
+                            non_sequences=[q_k,t_tau],
                             strict=True
                             )
         
-        try_sum2,_=theano.scan(lambda i, qk,ttau,htau: ifelse(T.gt(i,0),T.sum(T.psi(ttau[:i]+htau[:i])*(T.cumsum(qk[:i])[::-1])),T.constant(0.0,dtype='float64')),
+        try_sum2,_=theano.scan(lambda i, qk,ttau,htau: ifelse(T.gt(i,0),T.sum(T.psi(ttau[:i+1]+htau[:i+1])*(T.cumsum(qk[:i])[::-1])),T.constant(0.0,dtype='float64')),
                             sequences=T.arange(K),
-                            non_sequences=[q_k,et_tau,eh_tau],
+                            non_sequences=[q_k,t_tau,h_tau],
                             strict=True
                             )
         
+    
       
         #the multinomial bound for calculating p(z_{dk}|\upsilon_k)
-        mult_bound=T.cumsum(q_k*T.psi(eh_tau))+try_sum-try_sum2-T.cumsum(q_k*T.log(q_k))
+        mult_bound=T.cumsum(q_k*T.psi(h_tau))+try_sum-try_sum2-T.cumsum(q_k*T.log(q_k))
 
         #calculate q(z_{dk}=1)
         q_z=1.0/(1.0+T.exp(-omega))
         
        
-
-        #=======================================================================
-        # calculation of the weird last term
-        #=======================================================================
-
         
+        # A nested scan for calculating the expectations of the last term of log p(x|...)
         def normalCalc(d,n,xn,ts,tm,tmu,tl):
-            return xn[n,d]**2-2*xn[n,d]*T.sum(tmu[d,:]*tm[n,:])\
-                    +T.sum(tmu[d,:]*tm[n,:])**2\
-                    +((tmu[d,:]**2+tl[d,:])*(tm[n,:]**2+ts[n,:])).sum()-(tmu[d,:]**2*tm[n,:]**2).sum()
+            return -0.5*(t_a/t_b)*(xn[n,d]**2-2*xn[n,d]*T.sum(tmu[d,:]*tm[n,:])\
+                    +(tmu[d,:]*tm[n,:]).sum()**2\
+                    +((tmu[d,:]**2+tl[d,:])*(tm[n,:]**2+ts[n,:])-(tmu[d,:]**2*tm[n,:]**2)).sum())
              
         def inter_loop(n,xn,ts,tm,tmu,tl):
             
@@ -417,13 +472,14 @@ class IBP_ICA:
         
         final,_=theano.scan(fn=inter_loop,
                             sequences=T.arange(S),
-                            non_sequences=[x,et_s,t_m,t_mu,et_l],
+                            non_sequences=[x,t_s,t_m,t_mu,t_l],
                             strict=True
                             )
         
         
         #=======================================================================
         # Calculate Gdk expectation
+        # Again these loops are just to be sure
         #=======================================================================
         def gcalc(k,d,tc,tf,tmu,tl):
             return +0.5*(T.psi(tc[k,0])-T.log(tf[k,0]))-0.5*(tc[k,0]/tf[k,0])*(tmu[d,k]**2+tl[d,k])
@@ -439,12 +495,13 @@ class IBP_ICA:
         
         finalg,_=theano.scan(fn=inter_g_loop,
                                  sequences=T.arange(D),
-                                 non_sequences=[et_c,et_f,t_mu,et_l],
+                                 non_sequences=[t_c,t_f,t_mu,t_l],
                                  strict=True
                                  )
         
+        
         #=======================================================================
-        # Calculate the expectation of logy
+        # Calculate the expectation of log p(y)
         #=======================================================================
         def y_calc(j,k,n,zt,te1,te2,ts,tm):
             return zt[n,k,j]*(-0.5*T.log(2*np.pi)+0.5*(T.psi(te1[k,j])-T.log(te2[k,j]))-0.5*(te1[k,j]/te2[k,j])*(ts[n,k]+tm[n,k]**2))
@@ -467,40 +524,38 @@ class IBP_ICA:
         
         final_y,_=theano.scan(fn=not_so_deep_loop,
                               sequences=T.arange(S),
-                              non_sequences=[ezeta,et_e_1,et_e_2,et_s,t_m],
+                              non_sequences=[zeta,t_e_1,t_e_2,t_s,t_m],
                               strict=True
                               )
-#      
+      
         #=======================================================================
-        # calculate the likelihood term 
+        # calculate all the individual terms for calculating the likelihood
+        # this way it's easier to debug 
+        # The names are pretty self-explanatory 
         #=======================================================================
-        expectation_log_p_a=g_1*T.log(g_2)+(g_1-1)*(T.psi(et_g_1)-T.log(et_g_2))-g_2*(et_g_1/et_g_2)-T.log(T.gamma(g_1))
         
-        expectation_log_p_phi=a*T.log(b)+(a-1)*(T.psi(et_a)-T.log(et_b))-b*(et_a/et_b)-T.log(T.gamma(a))
+        expectation_log_p_a=g_1*T.log(g_2)+(g_1-1)*(T.psi(t_g_1)-T.log(t_g_2))-g_2*(t_g_1/t_g_2)-T.log(T.gamma(g_1))
         
-        expectation_log_u_k=T.psi(et_g_1)-T.log(et_g_2)+(et_g_1/et_g_2-1)*(T.psi(et_tau)-T.psi(et_tau+eh_tau))
+        expectation_log_p_phi=a*T.log(b)+(a-1)*(T.psi(t_a)-T.log(t_b))-b*(t_a/t_b)-T.log(T.gamma(a))
         
-        expectation_log_lambda_k=c*T.log(f)+(c-1)*(T.psi(et_c)-T.log(et_f))-f*(et_c/et_f)-T.log(T.gamma(c))
+        expectation_log_u_k=T.psi(t_g_1)-T.log(t_g_2)+(t_g_1/t_g_2-1)*(T.psi(t_tau)-T.psi(t_tau+h_tau))
         
-        expectation_log_varpi=-T.log(T.prod(T.gamma(xi),1))/T.gamma(T.sum(xi,1))+T.sum((xi-1)*(T.psi(et_xi)-(T.psi(T.sum(et_xi,1))).dimshuffle(0, 'x')),1)
+        expectation_log_lambda_k=c*T.log(f)+(c-1)*(T.psi(t_c)-T.log(t_f))-f*(t_c/t_f)-T.log(T.gamma(c))
         
-        expectation_log_skj=e_1*T.log(e_2)-(e_1+1)*(T.log(et_e_2)-T.psi(et_e_1))-e_2*(et_e_1/et_e_2)-T.log(T.gamma(e_1))
+        expectation_log_varpi=-T.log(T.prod(T.gamma(xi),1))/T.gamma(T.sum(xi,1))+T.sum((xi-1)*(T.psi(t_xi)-(T.psi(T.sum(t_xi,1))).dimshuffle(0, 'x')),1)
         
-        #expectation_log_gdk=-0.5*K*(T.log(2*np.pi))+0.5*K*T.prod(T.psi(t_c)-T.log(t_f))-0.5*(T.nlinalg.trace(T.dot(t_l,t_c/t_f))+T.diag(T.dot(t_mu.T*(t_c/t_f),t_mu)))
+        expectation_log_skj=e_1*T.log(e_2)-(e_1+1)*(T.log(t_e_2)-T.psi(t_e_1))-e_2*(t_e_1/t_e_2)-T.log(T.gamma(e_1))
+        
         expectation_log_gdk=-0.5*T.log(2*np.pi)+finalg
         
-        expectation_log_zdk=q_z*T.cumsum(T.psi(eh_tau)-T.psi(et_tau+eh_tau))+(1.0-q_z)*mult_bound
+        expectation_log_zdk=q_z*T.cumsum(T.psi(h_tau)-T.psi(t_tau+h_tau))+(1.0-q_z)*mult_bound
         
-        expectation_log_varepsilon=ezeta*(T.psi(et_xi)-T.psi(T.sum(et_xi,1)).dimshuffle(0,'x'))
+        expectation_log_varepsilon=zeta*(T.psi(t_xi)-T.psi(T.sum(t_xi,1)).dimshuffle(0,'x'))
         
-        #expectation_log_y=0.5*zeta*(-T.log(2*np.pi)+(T.psi(t_e_1)-T.log(t_e_2))-(t_e_1/t_e_2)*(T.nlinalg.trace(t_s)+T.diag(T.dot(t_m.T,t_m)).dimshuffle(0,'x')))
         expectation_log_y=final_y
         
-        expectation_log_x=-0.5*T.log(2*np.pi)+0.5*(T.psi(et_a)-T.log(et_b))-0.5*(et_a/et_b)*final
-#         
-#         expectation_log_x=-0.5*D*T.log(2*np.pi)+0.5*D*(T.psi(et_a)-T.log(t_b))-0.5*(t_a/t_b)*(T.diag(T.dot(x,x.T))-2*T.diag(T.dot(T.dot(t_m,t_mu.T),x.T))\
-#             +(T.nlinalg.trace(t_s)+T.diag(T.dot(t_m,t_m.T)))*T.sum(T.nlinalg.trace(t_l)+T.diag(T.dot(t_mu.T,t_mu))))
-#         
+        expectation_log_x=-0.5*T.log(2*np.pi)+0.5*(T.psi(t_a)-T.log(t_b))+final
+         
       
         #=======================================================================
         # Combine all the terms to get the likelihood
@@ -515,21 +570,26 @@ class IBP_ICA:
                     +T.sum(expectation_log_zdk)\
                     +T.sum(expectation_log_varepsilon)\
                     +T.sum(expectation_log_y) \
-                    +T.sum(expectation_log_x)                           
+                    +T.sum(expectation_log_x)     
+                                          
         #=======================================================================
-        # calculate the entropy term                     
+        # calculate the entropy term  
+        # Maybe should do individual lines again for easier debug.
+        # Checked many times but check again
+        # Each line is a different entropy term                   
         #=======================================================================
-        entropy=et_g_1-T.log(et_g_2)+(1-et_g_1)*T.psi(et_g_1)+T.log(T.gamma(et_g_1)) \
-                +et_a-T.log(et_b)+(1-et_a)*T.psi(et_a)+T.log(T.gamma(et_a)) \
-                +T.sum(T.log(T.gamma(et_tau)*T.gamma(eh_tau)/T.gamma(eh_tau+et_tau))-(et_tau-1)*T.psi(et_tau)-(eh_tau-1)*T.psi(eh_tau)+(et_tau+eh_tau-2)*T.psi(et_tau+eh_tau)) \
-                +T.sum(et_c-T.log(et_f)+T.log(T.gamma(et_c))+(1-et_c)*T.psi(et_c)) \
-                +T.sum(T.prod(T.gamma(et_xi),1)/T.gamma(T.sum(et_xi,1))-(J-T.sum(et_xi,1))*T.psi(T.sum(et_xi,1))-(T.sum((et_xi-1.0)*T.psi(et_xi),1))) \
-                +T.sum(et_e_1+T.log(et_e_2*T.gamma(et_e_1))-(1+et_e_1)*T.psi(et_e_1)) \
-                +0.5*T.sum(K*(T.log(2*np.pi)+1)+T.log(T.prod(et_l,1))) \
+        entropy=t_g_1-T.log(t_g_2)+(1-t_g_1)*T.psi(t_g_1)+T.log(T.gamma(t_g_1)) \
+                +t_a-T.log(t_b)+(1-t_a)*T.psi(t_a)+T.log(T.gamma(t_a)) \
+                +T.sum(T.log(T.gamma(t_tau)*T.gamma(h_tau)/T.gamma(h_tau+t_tau))-(t_tau-1)*T.psi(t_tau)-(h_tau-1)*T.psi(h_tau)+(t_tau+h_tau-2)*T.psi(t_tau+h_tau)) \
+                +T.sum(t_c-T.log(t_f)+T.log(T.gamma(t_c))+(1-t_c)*T.psi(t_c)) \
+                +T.sum(T.log(T.prod(T.gamma(t_xi),1)/T.gamma(T.sum(t_xi,1)))-(J-T.sum(t_xi,1))*T.psi(T.sum(t_xi,1))-(T.sum((t_xi-1.0)*T.psi(t_xi),1))) \
+                +T.sum(t_e_1+T.log(t_e_2*T.gamma(t_e_1))-(1+t_e_1)*T.psi(t_e_1)) \
+                +0.5*T.sum(K*(T.log(2*np.pi)+1)+T.sum(T.log(t_l),1)) \
                 -T.sum((1.0-q_z)*T.log(1.0-q_z))-T.sum(q_z*T.log(q_z)) \
-                +0.5*T.sum(K*(T.log(2*np.pi)+1)+T.sum(T.log(et_s),1)) \
-                -T.sum(ezeta*T.log(ezeta))
+                +0.5*T.sum(K*(T.log(2*np.pi)+1)+T.sum(T.log(t_s),1)) \
+                -T.sum(zeta*T.log(zeta))
 
+        #The evidence lower bound is the likelihood plus the entropy
         lower_bound=likelihood+entropy
         
         
@@ -537,9 +597,11 @@ class IBP_ICA:
         # set local and global gradient variables
         #=======================================================================
         #to take derivatives wrt to the log
-        gradVariables=[lt_tau,omega,lh_tau,lt_a,lt_c,lt_f,lt_g_1,lt_g_2]
-        localVar=[lt_s,t_m,lzeta]
-        batch_grad_vars=[lt_e_1,lt_e_2,lt_xi,lt_l,t_mu,lt_b]
+        #Reminder: e.g., t_g_1=T.exp(t_g_1_y)
+        print('\t Calculating Derivatives of the lower bound...')
+        gradVariables=[t_tau_y,omega,h_tau_y,t_a_y,t_c_y,t_f_y,t_g_1_y,t_g_2_y]
+        localVar=[t_s_y,t_m,zeta_y]
+        batch_grad_vars=[t_e_1_y,t_e_2_y,t_xi_y,t_l_y,t_mu,t_b_y]
         
         #=======================================================================
         # calculate the derivatives
@@ -548,40 +610,13 @@ class IBP_ICA:
         derivatives_local=T.grad(lower_bound,localVar)
         derivatives_batch=T.grad(lower_bound,batch_grad_vars)
         
-        #=======================================================================
-        # create the derivative functions    
-        #=======================================================================
-        #BUT THE INPUT MUST BE THE ORIGINAL VARIABLES
-        gradVariables=[t_tau,omega,h_tau,t_a,t_c,t_f,t_g_1,t_g_2]
-        localVar=[t_s,t_m,zeta]
-        batch_grad_vars=[t_e_1,t_e_2,t_xi,t_l,t_mu,t_b]
-        
-        
-        #testing some stuff, here the gradent is the derivative of the entropy term containing t_s wrt to t_s. With the current values, this gives 0.5 because it replaces
-        #ts[n,k] with the initial value
-#         der=T.grad(expectation_log_y.sum(),t_s)
-#         derx=T.grad(expectation_log_x.sum(),t_s)
-#         derent=T.grad(0.5*T.sum(K*(T.log(2*np.pi)+1)+T.sum(T.log(t_s),1)),t_s)
-#         self.gradyfunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D,S],der,allow_input_downcast=True,on_unused_input='warn')
-#         self.gradx=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D,S],derx,allow_input_downcast=True,on_unused_input='warn')        
-#         self.gradent=theano.function([t_s,K],derent,allow_input_downcast=True,on_unused_input='warn')
-#         
-       
-        #DEBUG
-        dera=T.grad(likelihood,lt_a)
-        self.gradafunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D,S],dera,allow_input_downcast=True,on_unused_input='warn')
-        
-        self.multFunction=theano.function([t_tau,h_tau,K],mult_bound,allow_input_downcast=True)
-        self.qfunv=theano.function([t_tau,h_tau],q_k,allow_input_downcast=True)
-        
-        
-        #END DEBUG
-        self.gradientFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D,S],derivatives,allow_input_downcast=True)
-        self.localGradientFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D,S],derivatives_local,allow_input_downcast=True)
-        self.batchGradientFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D,S],derivatives_batch,allow_input_downcast=True)
-        self.lowerBoundFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D,S],lower_bound,allow_input_downcast=True)
-        self.likelihoodFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D,S],likelihood,allow_input_downcast=True)
-        self.entropyFunction=theano.function(localVar+gradVariables+batch_grad_vars+[K,D,S],entropy,allow_input_downcast=True,on_unused_input='warn')
+        print('\t Creating functions...')
+        self.gradientFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,J,D,S],derivatives,allow_input_downcast=True,on_unused_input='ignore')
+        self.localGradientFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,J,D,S],derivatives_local,allow_input_downcast=True,on_unused_input='ignore')
+        self.batchGradientFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,J,D,S],derivatives_batch,allow_input_downcast=True,on_unused_input='ignore')
+        self.lowerBoundFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D,J,S],lower_bound,allow_input_downcast=True,on_unused_input='ignore')
+        #self.likelihoodFunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D,S],likelihood,allow_input_downcast=True)
+        #self.entropyFunction=theano.function(localVar+gradVariables+batch_grad_vars+[K,D,S],entropy,allow_input_downcast=True,on_unused_input='warn')
         
     #===========================================================================
     # Some naive creation of synthetic data
@@ -597,46 +632,63 @@ class IBP_ICA:
     
 if __name__ == '__main__':
     
+    #some initial variables
     K=5
     N=10000
     D=4
     J=8
     S=50
-    lower_bound=0
+    rho=0
     
-    z=IBP_ICA(K,D,J,S,lower_bound)
+    #initialize IBP_ICA object
+    z=IBP_ICA(K,D,J,S,N,rho)
     
+    #create some synthetic data
     x,G,y=z.create_synthetic_data(N)
     
-    
+    #init the posterior parameters
     z.init_params()
+    
+    #create lower bound and get gradients
     z.createGradientFunctions()
+    
+    #keep the lower bound for each iteration
     LL=[]
-    #sample the data 
-    random_indices=np.random.randint(0,len(x),S)
-    miniBatch=x[random_indices,:]
-    #print(z.lowerBoundFunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
-    #print(z.gradyfunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
-    #print(z.gradx(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
-    #print(z.gradent(K=z.K,t_s=z.local_params[0]))
-    #print('sup',z.gradafunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
-
+    
     iteration=1
+    
+    #repeat until forever
     while True:
+        
         print("Stochastic IBP-ICA iteration: ",iteration)
-        rho=(iteration+1.0)**(-.75)
+        
+        #set step size for this iteration (Paisley et al.) 
+        z.rho=(iteration+100.0)**(-.6)
         iteration+=1
         
+        #sample the data 
+        random_indices=np.random.randint(0,len(x),S)
+        miniBatch=x[random_indices,:]
         
-        print(z.lowerBoundFunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
+        #print the lower bound before updating the parameters
+        print(z.lowerBoundFunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.S,J=z.J))
                 
-        z.lower_bound=0
-        z.iterate(miniBatch,rho)
+        #perform one iteration of the algorithm 
+        z.iterate(miniBatch)
+        
+        #print the params for sanity check
         print(z.local_params)
         print(z.params)
         print(z.batch_params)
-        LL.append(z.lower_bound)
-        print("Lower Bound at iteration",iteration,"is ",z.lower_bound)
+        
+        
+        #append lower bound to list
+        LL.append(z.lowerBoundFunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.S,J=z.J))
+        
+        #print the lower bound to see how it goes
+        print("Lower Bound at iteration",iteration,"is ",LL[-1])
+        
+        #just a random stop condition
         if (iteration>10):
             break
         
@@ -644,7 +696,100 @@ if __name__ == '__main__':
 #===============================================================================
 # DEPRECATED STUFF. KEEP HERE JUST IN CASE
 #===============================================================================
+#print(z.lowerBoundFunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
+    #print(z.gradyfunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
+    #print(z.gradx(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
+    #print(z.gradent(K=z.K,t_s=z.local_params[0]))
+    #print('sup',z.gradafunction(*(z.local_params+z.params+z.batch_params),xi=z.xi,K=z.K,D=z.D,x=miniBatch,S=z.batch_size))
 
+#=======================================================================
+        # create the derivative functions    
+        #=======================================================================
+        #BUT THE INPUT MUST BE THE ORIGINAL VARIABLES
+#         gradVariables=[t_tau1,omega,h_tau1,t_a1,t_c1,t_f1,t_g_11,t_g_21]
+#         localVar=[t_s1,t_m,zeta1]
+#         batch_grad_vars=[t_e_11,t_e_21,t_xi1,t_l1,t_mu,t_b1]
+        
+        
+        #testing some stuff, here the gradent is the derivative of the entropy term containing t_s wrt to t_s. With the current values, this gives 0.5 because it replaces
+        #ts[n,k] with the initial value
+#         der=T.grad(expectation_log_y.sum(),t_s)
+#         derx=T.grad(expectation_log_x.sum(),t_s)
+#         derent=T.grad(0.5*T.sum(K*(T.log(2*np.pi)+1)+T.sum(T.log(t_s),1)),t_s)
+#         self.gradyfunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D,S],der,allow_input_downcast=True,on_unused_input='warn')
+#         self.gradx=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D,S],derx,allow_input_downcast=True,on_unused_input='warn')        
+#         self.gradent=theano.function([t_s,K],derent,allow_input_downcast=True,on_unused_input='warn')
+#         
+       
+        #DEBUG
+#         dera=T.grad(likelihood,t_a)
+#         self.gradafunction=theano.function(localVar+gradVariables+batch_grad_vars+[xi,x,K,D,S],dera,allow_input_downcast=True,on_unused_input='warn')
+#         
+#         self.multFunction=theano.function([t_tau,h_tau,K],mult_bound,allow_input_downcast=True)
+#         self.qfunv=theano.function([t_tau,h_tau],q_k,allow_input_downcast=True)
+        
+        
+        #END DEBUG
+       
+        #create the Theano variables
+        #tilde_a,tilde_b,tilde_gamma_1 and tilde_gamma_2 are scalars
+#         t_a=T.scalar('t_a',dtype='float64')
+#         t_b=T.scalar('t_b',dtype='float64')
+#         t_g_1=T.scalar('t_g_1',dtype='float64')
+#         t_g_2=T.scalar('t_g_2',dtype='float64')
+#         
+#         #tilde_eta_1,tilde_eta_2,tilde_xi,tilde_l,tilde_mu,omega,tilde_s, tilde_m and zeta are matrices
+#         t_e_1,t_e_2,t_xi,t_l,t_mu,omega,t_s,t_m=T.fmatrices('t_e_1','t_e_2','t_xi','t_l','t_mu','omega','t_s','t_m')
+#         
+#         #the only tensor we got
+#         zeta=T.ftensor3('zeta')
+#     
+#         #the rest are columns
+#         t_c=T.col('t_c',dtype='float64')
+#         t_f=T.col('t_f',dtype='float64')
+#         t_tau=T.col('t_tau',dtype='float64')
+#         h_tau=T.col('h_tau',dtype='float64')
+#          
+         
+                
+#         take the log of the original parameters
+#          lt_g_1=T.log(t_g_1)
+#          lt_g_2=T.log(t_g_2)
+#          lt_e_1=T.log(t_e_1)
+#          lt_e_2=T.log(t_e_2)
+#          lt_a=T.log(t_a)
+#          lt_b=T.log(t_b)
+#          lt_c=T.log(t_c)
+#          lt_f=T.log(t_f)
+#          lt_l=T.log(t_l)     
+#          lzeta=T.log(zeta)
+#          lt_xi=T.log(t_xi)
+#          lh_tau=T.log(h_tau)
+#          lt_tau=T.log(t_tau)
+#          lt_s=T.log(t_s)
+     #calculate q_k
+#         q_k,up=theano.scan(lambda i, t_tau,h_tau: T.exp(T.psi(eh_tau[i])+T.sum(T.psi(et_tau[:i-1]))-T.sum(T.psi(et_tau[:i]+eh_tau[:i]))),
+#                             sequences=T.arange(K),
+#                             non_sequences=[t_tau,h_tau])
+#         
+#         q_k/=T.sum(q_k)
+
+    #DIFFERENT FOR THE BATCH
+#     def calculate_intermediate_batch_params(self,batch_gradients):
+#         batch=[0]*len(self.batch_params)
+#         for i in range(len(batch)):
+#             batch[i]=np.array(self.batch_params[i],copy=True)
+#         
+#         for iteration in range(20):
+#             for i in range(len(self.batch_params)):
+#                 if (i==len(self.batch_params)-2):
+#                     batch[i]+=0.01*batch_gradients[i]
+#                     continue
+#                 batch[i]+=np.exp(np.log(batch[i])+0.01*batch_gradients[i])
+#         print(batch)
+#         time.sleep(20)
+#         return batch
+            
    #=======================================================================
         # Nested scan for the calculation of the multinomial bound
         #=======================================================================
