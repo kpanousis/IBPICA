@@ -8,6 +8,7 @@ import theano.tensor as T
 import numpy as np
 import time
 import pickle
+import sys
 from numpy.linalg import norm
 from numpy import newaxis
 from theano.ifelse import ifelse
@@ -81,13 +82,13 @@ class IBP_ICA:
         #=======================================================================
         # matrices
         #=======================================================================
-        rt_e_1=np.log(1.0)*np.ones((self.K,self.J))
-        rt_e_2=np.log(1.0)*np.ones((self.K,self.J))
-        rt_xi=np.log(1.0)*np.ones((self.K,self.J))
-        rt_l=np.log(1.0)*np.ones((self.D,self.K))
+        rt_e_1=np.log(2.0)*np.ones((self.K,self.J))
+        rt_e_2=np.log(2.0)*np.ones((self.K,self.J))
+        rt_xi=np.log(2.0)*np.ones((self.K,self.J))
+        rt_l=np.log(2.0)*np.ones((self.D,self.K))
         t_mu=np.random.normal(0,1,(self.D,self.K))
         omega=np.random.random((self.D,self.K))
-        rt_s=np.log(1.0)*np.ones((self.S,self.K))
+        rt_s=np.log(2.0)*np.ones((self.S,self.K))
         t_m=np.random.normal(0,1,size=(self.S,self.K))
         
         #=======================================================================
@@ -216,7 +217,7 @@ class IBP_ICA:
     #===========================================================================
     def getBatchGradients(self,miniBatch,s):
         '''
-        Calculates the gradients for the batch parameters. For each s, get gradient and perform gradient ascent to get the solution?
+        Calculates the gradients for the batch parameters. For each s, get gradient as if we have seen x_s N(or S?) times
         
         Parameters
         ----------
@@ -256,7 +257,7 @@ class IBP_ICA:
         #=======================================================================
 
         batch_gradients=self.batchGradientFunction(*(local_params+self.params+self.batch_params),x=x,xi=self.xi,K=self.K,D=self.D,S=self.S,J=self.J)
-         
+      
         return batch_gradients
     
 
@@ -296,11 +297,11 @@ class IBP_ICA:
     def iterate(self,miniBatch):
         '''
         Function that performs one iteration of the SVI IBP ICA algorithm. This includes:
-            1) Update the local parameters until convergence
+            1) Update the local parameters
             2) Get the intermediate values for the batch gradients
             3) Update Params:
-                3.1) Get intermediate values for the non batch global params
-                3.2) Gradient step for all the global parametes
+                3.1) Get intermediate values for the batch global params
+                3.2) Gradient step for all the global parameters dependent on the sufficient stats
         
         Parameters
         ----------
@@ -342,7 +343,7 @@ class IBP_ICA:
     #===========================================================================
     def updateLocalParams(self,miniBatch):
         '''
-        Update the local parameters for the IBP-ICA model until convergence
+        Update the local parameters for the IBP-ICA model (One gradient step)
         
         Parameters
         ----------
@@ -688,7 +689,7 @@ if __name__ == '__main__':
         
         
         for miniBatch_indices in random_indices:
-            print('\n\n')
+            print('\n')
             print('#########################################')
             print('# Processing miniBatch',current_minibatch+1,'at iteration',iteration,'#')
             print('#########################################')
@@ -713,7 +714,9 @@ if __name__ == '__main__':
             print('------------------------------------------------------------------')
             print("Lower Bound at iteration",iteration," and minibatch ",current_minibatch," is ",LL[iteration-1,current_minibatch-1])
             print('------------------------------------------------------------------')
-        
+            
+            if (np.isnan(LL[iteration-1,current_minibatch-1])):
+                sys.exit('Why is the bound nan? Please Debug.')
             
         #after all the minibatches for this iteration, update the global params with simple VI
         z.global_params_VI()
@@ -739,6 +742,23 @@ if __name__ == '__main__':
 #===============================================================================
 # DEPRECATED STUFF. KEEP HERE JUST IN CASE
 #===============================================================================
+
+
+# batch_gradients=[0]*len(self.batch_params)
+#         batch_gradients[0]=self.b+0.5*self.N*np.dot((miniBatch[s,:].T-np.dot(self.batch_params[-2],self.local_params[1][s,:].T)).T,miniBatch[s,:]-np.dot(self.batch_params[-2],self.local_params[1][s,:].T))
+#         batch_gradients[1]=self.eta_1+0.5*self.N*np.exp(self.local_params[2][s,:,:])
+#         batch_gradients[2]=self.eta_2+0.5*self.N*np.exp(self.local_params[2][s,:,:])*(np.exp(self.local_params[0][s,:])+self.local_params[1][s,:]**2).reshape(-1,1)
+#         batch_gradients[3]=self.xi+self.N*np.exp(self.local_params[2][s,:,:])
+#         
+#         batch_gradients[4]=np.zeros((self.D,self.K))
+#         for d in range(self.D):
+#             batch_gradients[4][d,:]=self.N*(np.exp(self.batch_params[-1])/np.exp(self.batch_params[0]))*(np.exp(self.local_params[0][s,:])+self.local_params[1][s,:]**2).reshape(-1,)\
+#                                      +(self.params[3]/self.params[4]).reshape(-1,)
+#         batch_gradients[5]=np.zeros((self.D,self.K))
+#         for d in range(self.D):
+#             batch_gradients[5][d,:]=self.N*(batch_gradients[4][d,:]**(-1))*self.local_params[1][s,:]*(miniBatch[s,d].T-np.dot(self.batch_params[-2][d,:],self.local_params[1][s,:].T))
+#         batch_gradients[6]=self.a+0.5*self.N*self.D
+#         print(batch_gradients)
         # A nested scan for calculating the expectations of the last term of log p(x|...)
 #         def normalCalc(d,n,xn,ts,tm,tmu,tl,ta,tb,K):
 #             ssum,_=theano.scan(fn=lambda k,curr,ts,tm,tmu,tl,n: curr+T.cumsum(tm[n,k]*tm[n,k+1:]*tmu[:,k].T*tmu[:,k+1])+(2*tm[n,k]**2+ts[n,k]**2)*(T.sum(tl[:,k])+tmu[:,k].T*tmu[:,k])
