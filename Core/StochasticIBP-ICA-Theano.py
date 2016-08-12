@@ -23,7 +23,7 @@ from six.moves import cPickle
 
 class IBP_ICA:
     
-    def __init__(self,K,D,J, S,N,rho):
+    def __init__(self,K,D,J, S,N,rho=0.01):
         '''
         Initialize a IBP_ICA instance.
         
@@ -286,8 +286,8 @@ class IBP_ICA:
 
         #update the batch global params
         for i in range(len(self.batch_params)):
-            self.batch_params[i]*=(1-rho)
-            self.batch_params[i]+=(self.rho/S)*batch_update[i]
+            self.batch_params[i]*=(1-self.rho)
+            self.batch_params[i]+=(self.rho)*batch_update[i]
        
         
     #===========================================================================
@@ -382,7 +382,7 @@ class IBP_ICA:
         print("\t Initializing prior parameters...")
         
         #Some constant priors
-        a=T.constant(2.0,dtype='float32')
+        a=T.constant(1.0,dtype='float32')
         b=T.constant(2.0,dtype='float32')
         c=T.constant(2.0,dtype='float32')
         f=T.constant(2.0,dtype='float32')
@@ -426,7 +426,7 @@ class IBP_ICA:
         h_tau=T.col('h_tau',dtype='float32')
          
         #Reparametrize the original variables to be the exp of something in order to impose positivity constraint
-        t_a=T.exp(t_a_y)
+        t_a=T.clip(T.exp(t_a_y),1,10) #SC did this
         t_e_1=T.exp(t_e_1_y)
         t_e_2=T.exp(t_e_2_y)
         t_l=T.exp(t_l_y)  
@@ -647,12 +647,11 @@ if __name__ == '__main__':
     K=5
     N=100
     D=4
-    J=8
+    J=2
     S=50
-    rho=0
     
     #initialize IBP_ICA object
-    z=IBP_ICA(K,D,J,S,N,rho)
+    z=IBP_ICA(K,D,J,S,N)
     
     #create some synthetic data
     x,G,y=z.create_synthetic_data(N)
