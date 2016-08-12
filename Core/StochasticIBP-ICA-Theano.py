@@ -142,8 +142,7 @@ class IBP_ICA:
     def global_params_VI(self):
         '''
         Function to calculate the intermediate values for the non-batch global parameters.
-        As before since we cant set the gradient to zero to get the update for the parameters, 
-        we need to perform gradient ascent to get the value(?)
+        Implemented with simple VI updates
         
         Parameters
         ----------
