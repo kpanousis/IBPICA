@@ -286,7 +286,7 @@ class IBP_ICA:
 
         #update the batch global params
         for i in range(len(self.batch_params)):
-            self.batch_params[i]*=(1-rho)
+            self.batch_params[i]*=(1-self.rho)
             self.batch_params[i]+=(self.rho/S)*batch_update[i]
        
         
