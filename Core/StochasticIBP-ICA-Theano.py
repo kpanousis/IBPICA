@@ -17,7 +17,7 @@ from theano.compile.io import Out
 from theano.gradient import consider_constant
 from scipy.special import psi
 theano.config.exception_verbosity='high'
-theano.config.optimizer='fast_run'
+#theano.config.optimizer='fast_run'
 theano.config.traceback.limit=20
 from six.moves import cPickle
 
@@ -82,14 +82,14 @@ class IBP_ICA:
         #=======================================================================
         # matrices
         #=======================================================================
-        rt_e_1=np.log(2.0)*np.ones((self.K,self.J))
-        rt_e_2=np.log(2.0)*np.ones((self.K,self.J))
-        rt_xi=np.log(2.0)*np.ones((self.K,self.J))
-        rt_l=np.log(2.0)*np.ones((self.D,self.K))
-        t_mu=np.random.normal(0,1,(self.D,self.K))
-        omega=np.random.random((self.D,self.K))
-        rt_s=np.log(2.0)*np.ones((self.S,self.K))
-        t_m=np.random.normal(0,1,size=(self.S,self.K))
+        rt_e_1=np.log(2.0)*np.ones((self.K,self.J),dtype='float32')
+        rt_e_2=np.log(2.0)*np.ones((self.K,self.J),dtype='float32')
+        rt_xi=np.log(2.0)*np.ones((self.K,self.J),dtype='float32')
+        rt_l=np.log(2.0)*np.ones((self.D,self.K),dtype='float32')
+        t_mu=np.ones((self.D,self.K))
+        omega=np.ones((self.D,self.K))
+        rt_s=np.log(2.0)*np.ones((self.S,self.K),dtype='float32')
+        t_m=np.ones((self.S,self.K))
         
         #=======================================================================
         # tensor
@@ -104,10 +104,10 @@ class IBP_ICA:
         #=======================================================================
         # vectors
         #=======================================================================
-        t_c=2.0*np.ones((self.K,1))
-        t_f=2.0*np.ones((self.K,1))
-        t_tau=2.0*np.ones((self.K,1))
-        h_tau=2.0*np.ones((self.K,1))
+        t_c=2.0*np.ones((self.K,1),dtype='float32')
+        t_f=2.0*np.ones((self.K,1),dtype='float32')
+        t_tau=2.0*np.ones((self.K,1),dtype='float32')
+        h_tau=2.0*np.ones((self.K,1),dtype='float32')
         
 #         print((t_a/t_b)*(t_mu**2+t_l).sum(0)+(zeta*(t_e_1/t_e_2)).sum(2))
         
@@ -383,24 +383,24 @@ class IBP_ICA:
         print("\t Initializing prior parameters...")
         
         #Some constant priors
-        a=T.constant(2.0,dtype='float64')
-        b=T.constant(2.0,dtype='float64')
-        c=T.constant(2.0,dtype='float64')
-        f=T.constant(2.0,dtype='float64')
-        g_1=T.constant(2.0,dtype='float64')
-        g_2=T.constant(2.0,dtype='float64')
-        e_1=T.constant(2.0,dtype='float64')
-        e_2=T.constant(2.0,dtype='float64')
+        a=T.constant(2.0,dtype='float32')
+        b=T.constant(2.0,dtype='float32')
+        c=T.constant(2.0,dtype='float32')
+        f=T.constant(2.0,dtype='float32')
+        g_1=T.constant(2.0,dtype='float32')
+        g_2=T.constant(2.0,dtype='float32')
+        e_1=T.constant(2.0,dtype='float32')
+        e_2=T.constant(2.0,dtype='float32')
 
         #Create some needed scalar variables
         K=T.scalar('K',dtype='int32')
         D=T.scalar('D',dtype='int32')      
         S=T.scalar('S',dtype='int32')
         J=T.scalar('J',dtype='int32')
-        xi=T.matrix('xi',dtype='float64')
+        xi=T.matrix('xi',dtype='float32')
         
         #The matrix for the data
-        x=T.matrix('x',dtype='float64')
+        x=T.matrix('x',dtype='float32')
          
         
         #Parameters that do not need the log trick
@@ -409,10 +409,10 @@ class IBP_ICA:
         t_m=T.fmatrix('t_m')
          
         #need to be positive scalars, so create some y variables so that e.g., t_a=exp(t_a_y)
-        t_a_y=T.scalar('t_a_y',dtype='float64')
-        t_b_y=T.scalar('t_b_y',dtype='float64')
-        t_g_1=T.scalar('t_g_1',dtype='float64')
-        t_g_2=T.scalar('t_g_2',dtype='float64')
+        t_a_y=T.scalar('t_a_y',dtype='float32')
+        t_b_y=T.scalar('t_b_y',dtype='float32')
+        t_g_1=T.scalar('t_g_1',dtype='float32')
+        t_g_2=T.scalar('t_g_2',dtype='float32')
          
         #tilde_eta_1,tilde_eta_2,tilde_xi,tilde_l,tilde_mu,omega,tilde_s, tilde_m and zeta are matrices
         t_e_1_y,t_e_2_y,t_xi_y,t_l_y,t_s_y=T.fmatrices('t_e_1_y','t_e_2_y','t_xi_y','t_l_y','t_s_y')
@@ -421,10 +421,10 @@ class IBP_ICA:
         zeta_y=T.ftensor3('zeta_y')
      
         #the rest are columns
-        t_c=T.col('t_c',dtype='float64')
-        t_f=T.col('t_f',dtype='float64')
-        t_tau=T.col('t_tau',dtype='float64')
-        h_tau=T.col('h_tau',dtype='float64')
+        t_c=T.col('t_c',dtype='float32')
+        t_f=T.col('t_f',dtype='float32')
+        t_tau=T.col('t_tau',dtype='float32')
+        h_tau=T.col('h_tau',dtype='float32')
          
         #Reparametrize the original variables to be the exp of something in order to impose positivity constraint
         t_a=T.exp(t_a_y)
@@ -446,13 +446,13 @@ class IBP_ICA:
         
     
         #I think these are correct but I also have a nested scan in the deprecated stuff just in case
-        try_sum,_=theano.scan(lambda i, qk,ttau: ifelse(T.gt(i,0),T.sum(T.psi(ttau[:i])*(T.sum(qk[:i])-T.cumsum(qk[:i-1]))),T.constant(0.0,dtype='float64')),
+        try_sum,_=theano.scan(lambda i, qk,ttau: ifelse(T.gt(i,0),T.sum(T.psi(ttau[:i])*(T.sum(qk[:i])-T.cumsum(qk[:i-1]))),T.constant(0.0,dtype='float32')),
                             sequences=T.arange(K),
                             non_sequences=[q_k,t_tau],
                             strict=True
                             )
         
-        try_sum2,_=theano.scan(lambda i, qk,ttau,htau: ifelse(T.gt(i,0),T.sum(T.psi(ttau[:i+1]+htau[:i+1])*(T.cumsum(qk[:i])[::-1])),T.constant(0.0,dtype='float64')),
+        try_sum2,_=theano.scan(lambda i, qk,ttau,htau: ifelse(T.gt(i,0),T.sum(T.psi(ttau[:i+1]+htau[:i+1])*(T.cumsum(qk[:i])[::-1])),T.constant(0.0,dtype='float32')),
                             sequences=T.arange(K),
                             non_sequences=[q_k,t_tau,h_tau],
                             strict=True
@@ -473,7 +473,7 @@ class IBP_ICA:
             
              ssum,_=theano.scan(fn=lambda k,curr,xn,ts,tm,tmu,tl,n: curr-2*(tm[n,k]*T.dot(tmu[:,k].T,x[n,:].T)+2*tm[n,k]*T.dot(tmu[:,k].T,T.sum(tm[n,k+1:]*tmu[:,k+1:],1))),
                                sequences=T.arange(K),   
-                               outputs_info=T.constant(0.).astype('float64'),
+                               outputs_info=T.constant(0.).astype('float32'),
                                non_sequences=[xn,ts,tm,tmu,tl,n],
                                )
              
@@ -628,6 +628,8 @@ class IBP_ICA:
                 pickle.dump(self.batch_params, f)
         with open('params/bound_iter_'+str(iteration)+'.pickle', 'wb') as f:  # Python 3: open(..., 'wb')
                 pickle.dump(LL, f)
+                
+                
     #===========================================================================
     # Some naive creation of synthetic data
     #===========================================================================
