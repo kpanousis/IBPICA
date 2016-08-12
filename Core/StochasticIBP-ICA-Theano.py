@@ -414,7 +414,7 @@ class IBP_ICA:
         t_g_2=T.scalar('t_g_2',dtype='float64')
          
         #tilde_eta_1,tilde_eta_2,tilde_xi,tilde_l,tilde_mu,omega,tilde_s, tilde_m and zeta are matrices
-        t_e_1_y,t_e_2_y,t_xi_y,t_l_y,t_s_y=T.fmatrices('t_e_1_y','t_e_2_y','t_xi_Y','t_l_y','t_s_y')
+        t_e_1_y,t_e_2_y,t_xi_y,t_l_y,t_s_y=T.fmatrices('t_e_1_y','t_e_2_y','t_xi_y','t_l_y','t_s_y')
          
         #the only tensor we got
         zeta_y=T.ftensor3('zeta_y')
