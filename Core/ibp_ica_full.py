@@ -135,7 +135,7 @@ class IBP_ICA:
         #some "global" calculations
         expectation_phi=self.t_a/self.t_b
         
-        
+        #sample for each dimension
         K_d_star=np.random.poisson(self.t_g_1/(self.t_g_2*(self.D-1)),size=self.D)
         
         #Remove redundant features
@@ -144,13 +144,17 @@ class IBP_ICA:
         #=======================================================================
         # construct IBP
         #=======================================================================
-        alpha=np.random.gamma(self.gamma_1,self.gamma_2)
-        u=np.random.beta(alpha,1,size=self.K)
-        pi_k=np.cumprod(u)
+       
         z=np.zeros((self.D,self.K))
+        alpha=np.random.gamma(self.t_g_1,self.t_g_2,size=self.K)
+        u=np.random.beta(alpha,1)
+        pi_k=np.cumprod(u)
         for k in range(self.K):
             z[:,k]=bernoulli.rvs(pi_k[k],size=self.D)
-        lambda_k=np.random.gamma(self.c,self.f,size=self.K)
+            #qz=expit(self.omega[:,k])
+            #random_nums=np.random.random(self.D)
+            #z[:,k]=random_nums<qz
+        lambda_k=np.random.gamma(self.t_c,self.t_f)
         
         
         #===========================================================================
@@ -163,18 +167,17 @@ class IBP_ICA:
             #Draw random samples  G_{d,:}^* from the prior
             G=np.zeros((1,K_d_star[d]))
             for k in range(K_d_star[d]):
-                G[0,k]=z[d,k]*np.random.normal(0,lambda_k[k]**-1)
+                if z[d,k]:
+                    G[0,k]=z[d,k]*np.random.normal(0,lambda_k[k])
+                else:
+                    G[0,k]=0
             
-            
-            #eye matrix
-            I=np.eye(self.K,self.K)
-             
             #E_g[G_{:,d}^T G_{:,d}]
             #may need a modification here
             expectation_g_transpose_g=np.dot((self.t_l[d,:]+self.t_mu[d,:]**2).reshape(-1,1),(self.t_l[d,:]+self.t_mu[d,:]**2).reshape(1,-1))
             
             #calculate M_d and M_d_star
-            M_d=expectation_phi*expectation_g_transpose_g+I
+            M_d=expectation_phi*expectation_g_transpose_g+np.eye(self.K,self.K)
             M_d_star=expectation_phi*np.dot(G[0,:].T,G[0,:])+np.eye(K_d_star[d],K_d_star[d])
                 
             exp_sum=0
@@ -195,6 +198,9 @@ class IBP_ICA:
             #acceptance probability
             p_d_star=min(1,theta_d_star/theta_d)
             
+            #print("theta_d",theta_d)
+            #print("theta_Star",theta_d_star)
+            #print(p_d_star)
             #accept proposal?
             if (np.random.rand()<p_d_star):
                 
@@ -689,7 +695,7 @@ class IBP_ICA:
         self.t_mu=np.hstack((self.t_mu,np.random.normal(0,1,(self.D,diff))))
         
         self.t_tau=np.vstack((self.t_tau,np.ones((diff,1))))
-        self.omega=np.hstack((self.omega,np.random.random((self.D,diff))))
+        self.omega=np.hstack((self.omega,-np.random.gamma(1,1,(self.D,diff))))
         self.h_tau=np.vstack((self.h_tau,np.ones((diff,1))))
         self.t_c=np.vstack((self.t_c,np.ones((diff,1))))
         self.t_f=np.vstack((self.t_f,np.ones((diff,1))))
@@ -722,10 +728,10 @@ class IBP_ICA:
     def create_synthetic_data(self,components=5):
         G=np.random.normal(0,1,size=(self.D,components))
         y=np.random.normal(0,1,size=(components,self.N))
-        #return np.dot(G,y).T,G,y
-        x=sio.loadmat('data/test_ibp_ica.mat')
-        x=x["X"]
-        return x
+        return np.dot(G,y).T,G,y
+        #x=sio.loadmat('data/test_ibp_ica.mat')
+        #x=x["X"]
+        #return x
         
     
 #===============================================================================
@@ -747,7 +753,7 @@ if __name__ == '__main__':
     z=IBP_ICA(5,initD,initJ,initS,initN)
     
     #create some synthetic data
-    x   =z.create_synthetic_data(5)
+    x,_,_=z.create_synthetic_data(5)
     z.N=x.shape[0]
     z.D=x.shape[1]
     
