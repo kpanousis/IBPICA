@@ -138,23 +138,9 @@ class IBP_ICA:
         #sample for each dimension
         K_d_star=np.random.poisson(self.t_g_1/(self.t_g_2*(self.D-1)),size=self.D)
         
-        #Remove redundant features
-        self.unused_components()
-
-        #=======================================================================
-        # construct IBP
-        #=======================================================================
-       
-        z=np.zeros((self.D,self.K))
-        alpha=np.random.gamma(self.t_g_1,self.t_g_2,size=self.K)
-        u=np.random.beta(alpha,1)
-        pi_k=np.cumprod(u)
-        for k in range(self.K):
-            z[:,k]=bernoulli.rvs(pi_k[k],size=self.D)
-            #qz=expit(self.omega[:,k])
-            #random_nums=np.random.random(self.D)
-            #z[:,k]=random_nums<qz
-        lambda_k=np.random.gamma(self.t_c,self.t_f)
+        
+        print('Number of features before expansion:',self.K)
+            
         
         
         #===========================================================================
@@ -164,21 +150,34 @@ class IBP_ICA:
             
             if (K_d_star[d]==0):
                 continue
+            
+            #onstruct the ibp
+            z=np.zeros((self.D,K_d_star[d]))
+            alpha=np.random.gamma(self.gamma_1,self.gamma_2,size=K_d_star[d])
+            u=np.random.beta(alpha,1)
+            pi_k=np.cumprod(u)
+            
+            for k in range(K_d_star[d]):
+                z[:,k]=bernoulli.rvs(pi_k[k],size=self.D)
+                
+            lambda_k=np.random.gamma(self.c,self.f,size=K_d_star[d])
+
             #Draw random samples  G_{d,:}^* from the prior
             G=np.zeros((1,K_d_star[d]))
             for k in range(K_d_star[d]):
                 if z[d,k]:
-                    G[0,k]=z[d,k]*np.random.normal(0,lambda_k[k])
-                else:
-                    G[0,k]=0
-            
+                    if (K_d_star[d]>1):
+                        G[0,k]=z[d,k]*np.random.randn()*lambda_k[k]**-0.5
+                    else:
+                        G[0,k]=z[d,k]*np.random.randn(K_d_star[d])*lambda_k[k]**-0.5
+            #G=np.random.randn(1,K_d_star[d])*lambda_k**-.5
             #E_g[G_{:,d}^T G_{:,d}]
             #may need a modification here
             expectation_g_transpose_g=np.dot((self.t_l[d,:]+self.t_mu[d,:]**2).reshape(-1,1),(self.t_l[d,:]+self.t_mu[d,:]**2).reshape(1,-1))
             
             #calculate M_d and M_d_star
             M_d=expectation_phi*expectation_g_transpose_g+np.eye(self.K,self.K)
-            M_d_star=expectation_phi*np.dot(G[0,:].T,G[0,:])+np.eye(K_d_star[d],K_d_star[d])
+            M_d_star=expectation_phi*np.dot(G.T,G)+np.eye(K_d_star[d],K_d_star[d])
                 
             exp_sum=0
             exp_sum_star=0
@@ -188,7 +187,7 @@ class IBP_ICA:
                 m_nd=expectation_phi*np.dot(inv(M_d),self.t_mu[d,:].T)*(miniBatch[n,d]-np.dot(self.t_mu[d,:].T,self.t_m[n,:].T))
                 exp_sum+=np.dot(np.dot(m_nd.T,M_d),m_nd)
 
-                m_nd_star=expectation_phi*np.dot(inv(M_d_star),G[0,:].T)*(miniBatch[n,d]-np.dot(self.t_mu[d,:],self.t_m[n,:].T)) 
+                m_nd_star=expectation_phi*np.dot(inv(M_d_star),G.T)*(miniBatch[n,d]-np.dot(self.t_mu[d,:],self.t_m[n,:].T)) 
                 exp_sum_star+=np.dot(np.dot(m_nd_star.T,M_d_star),m_nd_star)
     
             
@@ -203,12 +202,13 @@ class IBP_ICA:
             #print(p_d_star)
             #accept proposal?
             if (np.random.rand()<p_d_star):
-                
-                if (K_d_star[d]>0):
-                    self.expand_arrays(K_d_star[d])
-                    self.K+=K_d_star[d]
+                #Remove redundant features
+                self.unused_components()
+                 
+                self.expand_arrays(K_d_star[d])
+                self.K+=K_d_star[d]
         
-    
+        print('Number of features after expansion',self.K)
     
     def mult_bound_calc(self):
         #qk calculation 
@@ -680,7 +680,6 @@ class IBP_ICA:
     #=======================================================================
     def expand_arrays(self,diff):
         
-        print("Expand arrays..")
         self.xi=np.vstack((self.xi,np.ones((diff,self.J))))
         
         
@@ -712,13 +711,13 @@ class IBP_ICA:
         if not os.path.exists(start_time):
             os.makedirs(start_time)
             
-        with open(start_time+'/params'+str(iteration)+'.pickle', 'wb') as f:  # Python 3: open(..., 'wb')
+        with open(start_time+'/params'+str(iteration)+'.pickle', 'wb') as f:  
                 pickle.dump(self.params, f)
-        with open(start_time+'/localparams'+str(iteration)+'.pickle', 'wb') as f:  # Python 3: open(..., 'wb')
+        with open(start_time+'/localparams'+str(iteration)+'.pickle', 'wb') as f: 
                 pickle.dump(self.local_params, f)
-        with open(start_time+'/batchparams'+str(iteration)+'.pickle', 'wb') as f:  # Python 3: open(..., 'wb')
+        with open(start_time+'/batchparams'+str(iteration)+'.pickle', 'wb') as f: 
                 pickle.dump(self.batch_params, f)
-        with open(start_time+'/bound_iter_'+str(iteration)+'.pickle', 'wb') as f:  # Python 3: open(..., 'wb')
+        with open(start_time+'/bound_iter_'+str(iteration)+'.pickle', 'wb') as f:  
                 pickle.dump(LL, f)
                 
     
@@ -729,10 +728,10 @@ class IBP_ICA:
         G=np.random.normal(0,1,size=(self.D,components))
         y=np.random.normal(0,1,size=(components,self.N))
         return np.dot(G,y).T,G,y
-        #x=sio.loadmat('data/test_ibp_ica.mat')
-        #x=x["X"]
-        #return x
-        
+        #x=sio.loadmat('data/ycent.mat')
+        #x=x["Ycentered"]
+        #return x,0,0
+#         
     
 #===============================================================================
 # Main 
@@ -753,7 +752,7 @@ if __name__ == '__main__':
     z=IBP_ICA(5,initD,initJ,initS,initN)
     
     #create some synthetic data
-    x,_,_=z.create_synthetic_data(5)
+    x,_,_=z.create_synthetic_data(10)
     z.N=x.shape[0]
     z.D=x.shape[1]
     
@@ -834,8 +833,8 @@ if __name__ == '__main__':
         z.global_params_VI()
         #print(LL[iteration-1,:])
         #time.sleep(5)
-        z.feature_update(miniBatch)             
-        print(z.K)
+        if (iteration %5==0):
+            z.feature_update(miniBatch)             
             
             
         z.save_params(iteration,start_time,LL[iteration-1,:])
