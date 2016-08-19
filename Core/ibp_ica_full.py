@@ -197,9 +197,7 @@ class IBP_ICA:
             #acceptance probability
             p_d_star=min(1,theta_d_star/theta_d)
             
-            #print("theta_d",theta_d)
-            #print("theta_Star",theta_d_star)
-            #print(p_d_star)
+           
             #accept proposal?
             if (np.random.rand()<p_d_star):
                 #Remove redundant features
@@ -727,10 +725,10 @@ class IBP_ICA:
     def create_synthetic_data(self,components=5):
         G=np.random.normal(0,1,size=(self.D,components))
         y=np.random.normal(0,1,size=(components,self.N))
-        return np.dot(G,y).T,G,y
-        #x=sio.loadmat('data/ycent.mat')
-        #x=x["Ycentered"]
-        #return x,0,0
+        #return np.dot(G,y).T,G,y
+        x=sio.loadmat('data/test_ibp_ica.mat')
+        x=x["X"]
+        return x.T,0,0
 #         
     
 #===============================================================================
@@ -743,7 +741,7 @@ if __name__ == '__main__':
     initN=1000
     initD=4
     initJ=3
-    initS=50
+    initS=60
     
     #x=datasets.load_iris()
     #x=x.data
@@ -833,7 +831,7 @@ if __name__ == '__main__':
         z.global_params_VI()
         #print(LL[iteration-1,:])
         #time.sleep(5)
-        if (iteration %5==0):
+        if (iteration %3==0):
             z.feature_update(miniBatch)             
             
             
