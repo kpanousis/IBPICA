@@ -3,7 +3,8 @@ Created on Jun 29, 2016
 
 @author: kon
 '''
-import theano
+from __future__ import division
+from scipy import signal
 import numpy as np
 import time
 import pickle
@@ -16,7 +17,6 @@ from numpy.linalg import det
 from scipy.special import gammaln
 from scipy.special import expit
 from scipy import io as sio
-
 
 class IBP_ICA:
     
@@ -71,39 +71,38 @@ class IBP_ICA:
         #=======================================================================
         # The scalar parameters
         #=======================================================================
-        self.t_a=2.0
-        self.t_b=2.0
-        self.t_g_1=2.0
-        self.t_g_2=2.0
+        self.t_a=1.0
+        self.t_b=1.0
+        self.t_g_1=1.0
+        self.t_g_2=1.0
         
         #=======================================================================
         # matrices
         #=======================================================================
-        self.t_e_1=1.0*np.ones((self.K,self.J),dtype='float32')
-        self.t_e_2=1.0*np.ones((self.K,self.J),dtype='float32')
-        self.t_xi=1.0*np.ones((self.K,self.J),dtype='float32')
-        self.t_l=1.0*np.ones((self.D,self.K),dtype='float32')
-        self.t_mu=np.random.normal(0,1,(self.D,self.K))
-        self.omega=-np.random.random((self.D,self.K))
-        self.t_s=1.0*np.ones((self.N,self.K),dtype='float32')
-        self.t_m=np.random.normal(0,1,(self.N,self.K))
+        self.t_e_1=np.ones((self.K,self.J))
+        self.t_e_2=np.random.random((self.K,self.J))
+        self.t_xi=np.random.random((self.K,self.J))
+        self.t_l=np.random.random((self.D,self.K))
+        self.t_mu=np.random.normal(0,1,(self.D,self.K)).astype('float64')
+        self.omega=-np.random.random((self.D,self.K)).astype('float64')
+        self.t_s=np.random.random((self.N,self.K))
+        self.t_m=np.random.normal(0,1,(self.N,self.K)).astype('float64')
         
         #=======================================================================
         # tensor
         #=======================================================================
         #zeta=np.random.random(size=(self.S,self.K,self.J))
-        self.zeta=1.0*np.ones((self.N,self.K,self.J))
+        self.zeta=1.0*np.random.random((self.N,self.K,self.J)).astype('float64')
         for n in range(self.N):
-            self.zeta[n,:,:]/=self.zeta[n,:,:].sum(1).reshape(-1,1)
-        
+            self.zeta[n,:,:]/=self.zeta[n,:,:].sum(1).reshape(-1,1).astype('float64')
         
         #=======================================================================
         # vectors
         #=======================================================================
-        self.t_c=1.0*np.ones((self.K,1),dtype='float32')
-        self.t_f=1.0*np.ones((self.K,1),dtype='float32')
-        self.t_tau=1.0*np.ones((self.K,1),dtype='float32')
-        self.h_tau=1.0*np.ones((self.K,1),dtype='float32')
+        self.t_c=1.0*np.random.random((self.K,1))
+        self.t_f=1.0*np.random.random((self.K,1))
+        self.t_tau=1.0*np.random.random((self.K,1))
+        self.h_tau=1.0*np.random.random((self.K,1))
         
 #         print((t_a/t_b)*(t_mu**2+t_l).sum(0)+(zeta*(t_e_1/t_e_2)).sum(2))
         
@@ -292,7 +291,7 @@ class IBP_ICA:
          
         #tilde_f
         #self.t_f*=(1.0-self.rho)
-        self.t_f=(self.f+(self.t_l+self.t_mu**2).sum(0).reshape(-1,1))
+        self.t_f=(self.f+0.5*(self.t_l+self.t_mu**2).sum(0).reshape(-1,1))
          
         #update t_g_1
         #self.t_g_1*=(1.0-self.rho)
@@ -430,11 +429,9 @@ class IBP_ICA:
             self.batch_params[i]+=(self.rho)*intermediate_values_batch_all[i]
         self.t_b,self.t_e_1,self.t_e_2,self.t_xi,self.t_l,self.t_mu,self.t_a=self.batch_params
         
-        
-        
     
     #===========================================================================
-    # Update the local parameters with gradient steps until convergence
+    # Update the local parameters using simple VI
     #===========================================================================
     def updateLocalParams(self,x,mb_indices):
         '''
@@ -456,10 +453,10 @@ class IBP_ICA:
         
         for n in range(self.S):
             self.zeta[mb_indices[n],:,:]=(np.exp(psi(self.t_xi)-psi(self.t_xi.sum(1)).reshape(-1,1)\
-                                                   +0.5*(-np.log(2*np.pi)+psi(self.t_e_1)-np.log(self.t_e_2)-(self.t_e_1/self.t_e_2)*(self.t_m[mb_indices[n],:]**2+self.t_s[mb_indices[n],:]).reshape(-1,1))))
-            self.zeta[mb_indices[n],:,:]/=self.zeta[mb_indices[n],:,:].sum(1).reshape(-1,1)
-           
-           
+                                                   +0.5*(psi(self.t_e_1)-np.log(self.t_e_2)-(self.t_e_1/self.t_e_2)*(self.t_m[mb_indices[n],:]**2+self.t_s[mb_indices[n],:]).reshape(-1,1))))
+            self.zeta[mb_indices[n],:,:]/=self.zeta[mb_indices[n],:,:].sum(1).reshape(-1,1).astype('float64')
+            
+                       
     #CALCULATION OF THE LOWER BOUND,
     #SWITCHED FROM THEANO, MUST CHECK SOME STUFF 
     def calculate_lower_bound(self,miniBatch,ind=None):
@@ -606,10 +603,6 @@ class IBP_ICA:
         return lower_bound
         
            
-    #===========================================================================
-    # Calculate the lower bound and create gradient functions for all parameters
-    #===========================================================================
-
     
     #===========================================================================
     # METROPOLIS HASTINGS PART
@@ -631,7 +624,7 @@ class IBP_ICA:
         Find which components are being used
         '''
         
-        threshold=10**-3
+        threshold=5*10**-4
         q=expit(self.omega)
         used_k=[]
         for k in range(self.K):
@@ -723,12 +716,27 @@ class IBP_ICA:
     # Some naive creation of synthetic data
     #===========================================================================
     def create_synthetic_data(self,components=5):
-        G=np.random.normal(0,1,size=(self.D,components))
-        y=np.random.normal(0,1,size=(components,self.N))
+        #G=np.random.normal(0,1,size=(self.D,components))
+        #y=np.random.normal(0,1,size=(components,self.N))
         #return np.dot(G,y).T,G,y
-        x=sio.loadmat('data/test_ibp_ica.mat')
-        x=x["X"]
-        return x.T,0,0
+        np.random.seed(0)
+        n_samples = 2000
+        time = np.linspace(0, 8, n_samples)
+        s1 = np.sin(2 * time)  # Signal 1 : sinusoidal signal
+        s2 = np.sign(np.sin(3 * time))  # Signal 2 : square signal
+        s3 = signal.sawtooth(2 * np.pi * time)  # Signal 3: saw tooth signal
+
+        S = np.c_[s1, s2, s3]
+        S += 0.2 * np.random.normal(size=S.shape)  # Add noise
+
+        S /= S.std(axis=0)  # Standardize data
+        # Mix data
+        A = np.array([[1, 1, 1], [0.5, 2, 1.0], [1.5, 1.0, 2.0]])  # Mixing matrix
+        X = np.dot(S, A.T)  # Generate observations
+        return X,0,0
+        #x=sio.loadmat('data/helwig_snr_0_overlap_1.mat')
+        #x=x["X"]
+        #return x.T,0,0
 #         
     
 #===============================================================================
@@ -740,35 +748,35 @@ if __name__ == '__main__':
     #some initial variables
     initN=1000
     initD=4
-    initJ=3
-    initS=60
+    initJ=10
+    initS=50
     
     #x=datasets.load_iris()
     #x=x.data
     #initN,initD=x.shape
     #initialize IBP_ICA object
-    z=IBP_ICA(5,initD,initJ,initS,initN)
+    z=IBP_ICA(3,initD,initJ,initS,initN)
     
     #create some synthetic data
     x,_,_=z.create_synthetic_data(10)
     z.N=x.shape[0]
     z.D=x.shape[1]
     
+    
     #init the posterior parameters
     z.init_params()
     
-    #create lower bound and get gradients
-    #z.calculate_lower_bound(x)
-    #z.createGradientFunctions()
-    
+    print(z.N)
+    print(z.D)    
    
     iteration=0
-    max_iter=500
-    
+    max_iter=1000
+    elbo_tolerance=10**-3
     #keep the lower bound for each iteration
     LL=np.zeros((max_iter,int(z.N/z.S)))
+    LL_iterations=np.zeros((max_iter,1))
     
-    start_time=str(iteration)+(time.strftime("%Y-%m-%d-%H:%M").replace(" ","_")+'_batch_size_'+str(initS)+'_D_'+str(initD))
+    start_time=str(iteration)+(time.strftime("%Y-%m-%d-%H:%M").replace(" ","_")+'_batch_size_'+str(initS)+'_D_'+str(z.D)+'fast_ica_data')
     global_min=0
     #repeat until maxi iterations
     st=time.time()
@@ -779,7 +787,7 @@ if __name__ == '__main__':
         iteration+=1
         print("Stochastic IBP-ICA iteration: ",iteration)
         #set step size for this iteration (Paisley et al.) 
-        z.rho=0.0005
+        z.rho=(iteration+1.0)**-.75
         
         #create all the random minibatches for this iteration
         random_indices=np.arange(z.N)
@@ -792,51 +800,36 @@ if __name__ == '__main__':
         
         
         for miniBatch_indices in random_indices:
-            #print('\n')
-            #print('#########################################')
-            #print('# Processing miniBatch',current_minibatch+1,'at iteration',iteration,'#')
-            #print('#########################################')
             current_minibatch+=1
             miniBatch=x[miniBatch_indices,:]
-            #print the lower bound before updating the parameters
-            #elbo=z.calculate_lower_bound(miniBatch,miniBatch_indices)
-            #elbo1=z.calculate_lower_bound(x)
-
-            #print('-----------------------------------------------------------------------------------------------------')
-            #print('The lower bound with the new batch before optimisation is',elbo)
-            #print('The lower bound with the whole dataset before optimisation is',elbo1)
-            #print('-----------------------------------------------------------------------------------------------------')
-            
-            #time.sleep(2)
-            
+                        
             #perform one iteration of the algorithm 
             z.iterate(x,miniBatch_indices)
-
-           
             
             #append lower bound to list
             LL[iteration-1,current_minibatch-1]=(z.calculate_lower_bound(miniBatch,miniBatch_indices))
-            #elbo1=z.calculate_lower_bound(x)
-
-            #print the lower bound to see how it goes
-            #print('------------------------------------------------------------------')
-            #print("Lower Bound at iteration",iteration,"and minibatch ",current_minibatch,"after optimisation is ",LL[iteration-1,current_minibatch-1])
-            #print("Lower Bound (whole dataset) at iteration",iteration,"and minibatch ",current_minibatch,"after optimisation is ",elbo1)
-            #print('------------------------------------------------------------------')
-                        
+            
+                    
             if (np.isnan(LL[iteration-1,current_minibatch-1])):
                 sys.exit('Why is the bound nan? Please Debug.')
             
         #update the non batch global params
         z.global_params_VI()
-        #print(LL[iteration-1,:])
-        #time.sleep(5)
-        if (iteration %3==0):
-            z.feature_update(miniBatch)             
+        LL_iterations[iteration-1,0]=(z.calculate_lower_bound(miniBatch,miniBatch_indices))
+
+        #check convergence
+        if iteration>1:
+            if abs(LL_iterations[iteration-1,0]-LL_iterations[iteration-2,0])<elbo_tolerance:
+                print(LL_iterations)
+                print("Reached ELBO tolerance level..")
+                break
+        #if (iteration %5==0):
+        #   z.feature_update(miniBatch)             
             
-            
+        #save params for each iteration
         z.save_params(iteration,start_time,LL[iteration-1,:])
         
+    #Print some stuff and save all
     global_min=np.max(LL)
     global_min_ind=np.argmax(LL)
     print('------------------------------------------------------------------')
