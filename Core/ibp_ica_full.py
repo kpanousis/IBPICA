@@ -719,24 +719,24 @@ class IBP_ICA:
         #G=np.random.normal(0,1,size=(self.D,components))
         #y=np.random.normal(0,1,size=(components,self.N))
         #return np.dot(G,y).T,G,y
-        np.random.seed(0)
-        n_samples = 2000
-        time = np.linspace(0, 8, n_samples)
-        s1 = np.sin(2 * time)  # Signal 1 : sinusoidal signal
-        s2 = np.sign(np.sin(3 * time))  # Signal 2 : square signal
-        s3 = signal.sawtooth(2 * np.pi * time)  # Signal 3: saw tooth signal
+        #np.random.seed(0)
+        #n_samples = 2000
+        #time = np.linspace(0, 8, n_samples)
+        #s1 = np.sin(2 * time)  # Signal 1 : sinusoidal signal
+        #s2 = np.sign(np.sin(3 * time))  # Signal 2 : square signal
+        #s3 = signal.sawtooth(2 * np.pi * time)  # Signal 3: saw tooth signal
 
-        S = np.c_[s1, s2, s3]
-        S += 0.2 * np.random.normal(size=S.shape)  # Add noise
+        #S = np.c_[s1, s2, s3]
+        #S += 0.2 * np.random.normal(size=S.shape)  # Add noise
 
-        S /= S.std(axis=0)  # Standardize data
+        #S /= S.std(axis=0)  # Standardize data
         # Mix data
-        A = np.array([[1, 1, 1], [0.5, 2, 1.0], [1.5, 1.0, 2.0]])  # Mixing matrix
-        X = np.dot(S, A.T)  # Generate observations
-        return X,0,0
-        #x=sio.loadmat('data/helwig_snr_0_overlap_1.mat')
-        #x=x["X"]
-        #return x.T,0,0
+        #A = np.array([[1, 1, 1], [0.5, 2, 1.0], [1.5, 1.0, 2.0]])  # Mixing matrix
+        #X = np.dot(S, A.T)  # Generate observations
+        #return X,0,0
+        x=sio.loadmat('data/helwig_snr_1_overlap_1.mat')
+        x=x["X"]
+        return x.T,0,0
 #         
     
 #===============================================================================
@@ -749,7 +749,7 @@ if __name__ == '__main__':
     initN=1000
     initD=4
     initJ=10
-    initS=50
+    initS=60
     
     #x=datasets.load_iris()
     #x=x.data
@@ -771,12 +771,12 @@ if __name__ == '__main__':
    
     iteration=0
     max_iter=1000
-    elbo_tolerance=10**-3
+    elbo_tolerance=10**-2
     #keep the lower bound for each iteration
     LL=np.zeros((max_iter,int(z.N/z.S)))
     LL_iterations=np.zeros((max_iter,1))
     
-    start_time=str(iteration)+(time.strftime("%Y-%m-%d-%H:%M").replace(" ","_")+'_batch_size_'+str(initS)+'_D_'+str(z.D)+'fast_ica_data')
+    start_time=str(iteration)+(time.strftime("%Y-%m-%d-%H:%M").replace(" ","_")+'_batch_size_'+str(initS)+'_D_'+str(z.D)+'helwig_overlap_1_SNR_1_random_init_step_1000')
     global_min=0
     #repeat until maxi iterations
     st=time.time()
@@ -787,7 +787,7 @@ if __name__ == '__main__':
         iteration+=1
         print("Stochastic IBP-ICA iteration: ",iteration)
         #set step size for this iteration (Paisley et al.) 
-        z.rho=(iteration+1.0)**-.75
+        z.rho=(iteration+1000.0)**-.75
         
         #create all the random minibatches for this iteration
         random_indices=np.arange(z.N)
