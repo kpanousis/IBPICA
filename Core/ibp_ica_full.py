@@ -17,6 +17,7 @@ from numpy.linalg import det
 from scipy.special import gammaln
 from scipy.special import expit
 from scipy import io as sio
+from sklearn import preprocessing
 
 class IBP_ICA:
     
@@ -51,7 +52,7 @@ class IBP_ICA:
     #===========================================================================
     # Initialize posterior parameters and xi 
     #===========================================================================
-    def init_params(self):
+    def init_params(self,data):
         '''
         Initialize the posterior parameters
         
@@ -66,32 +67,31 @@ class IBP_ICA:
         batch_params: list
             The global parameters that need batch update: tilde_eta_1, tilde_eta_2, tilde_xi, tilde_lambda, tilde_mu and tilde_b
         '''
-        self.xi=2*np.ones((self.K,self.J))
+        self.xi=5*np.ones((self.K,self.J))
         
         #=======================================================================
         # The scalar parameters
         #=======================================================================
-        self.t_a=1.0
-        self.t_b=1.0
+        #self.t_a=1.0
+        #self.t_b=1.0
         self.t_g_1=1.0
         self.t_g_2=1.0
         
         #=======================================================================
         # matrices
         #=======================================================================
-        self.t_e_1=np.ones((self.K,self.J))
+        self.t_e_1=np.random.random((self.K,self.J))
         self.t_e_2=np.random.random((self.K,self.J))
         self.t_xi=np.random.random((self.K,self.J))
-        self.t_l=np.random.random((self.D,self.K))
-        self.t_mu=np.random.normal(0,1,(self.D,self.K)).astype('float64')
+        #self.t_l=np.random.random((self.D,self.K))
+        #self.t_mu=np.random.normal(0,1,(self.D,self.K)).astype('float64')
         self.omega=-np.random.random((self.D,self.K)).astype('float64')
-        self.t_s=np.random.random((self.N,self.K))
-        self.t_m=np.random.normal(0,1,(self.N,self.K)).astype('float64')
+        #self.t_s=np.random.random((self.N,self.K))
+        #self.t_m=np.random.normal(0,1,(self.N,self.K)).astype('float64')
         
         #=======================================================================
         # tensor
         #=======================================================================
-        #zeta=np.random.random(size=(self.S,self.K,self.J))
         self.zeta=1.0*np.random.random((self.N,self.K,self.J)).astype('float64')
         for n in range(self.N):
             self.zeta[n,:,:]/=self.zeta[n,:,:].sum(1).reshape(-1,1).astype('float64')
@@ -99,12 +99,17 @@ class IBP_ICA:
         #=======================================================================
         # vectors
         #=======================================================================
-        self.t_c=1.0*np.random.random((self.K,1))
+        self.t_c=1*np.random.random((self.K,1))
         self.t_f=1.0*np.random.random((self.K,1))
-        self.t_tau=1.0*np.random.random((self.K,1))
+        self.t_tau=1*np.random.random((self.K,1))
         self.h_tau=1.0*np.random.random((self.K,1))
         
 #         print((t_a/t_b)*(t_mu**2+t_l).sum(0)+(zeta*(t_e_1/t_e_2)).sum(2))
+        
+        
+        
+        y=self.initiliaze_posterior(data)
+        #self.initialize_mixtures(y)
         
         #=======================================================================
         # The order is very important 
@@ -112,14 +117,161 @@ class IBP_ICA:
         self.params=[self.t_tau,self.omega,self.h_tau,self.t_c,self.t_f,self.t_g_1,self.t_g_2]
         self.local_params=[self.t_s,self.t_m,self.zeta]
         self.batch_params=[self.t_b,self.t_e_1,self.t_e_2,self.t_xi,self.t_l,self.t_mu,self.t_a]
-        self.gamma_1=2
-        self.gamma_2=2
-        self.b=2
-        self.a=2
-        self.c=2
-        self.f=2
-        self.eta_1=2
-        self.eta_2=2
+        #print(self.batch_params)
+        #print(self.local_params)
+        self.gamma_1=1
+        self.gamma_2=1
+        self.b=1
+        self.a=1
+        self.c=1
+        self.f=1
+        self.eta_1=1
+        self.eta_2=1
+    
+    #===========================================================================
+    # kmeans implementation for initialisation
+    #===========================================================================
+    def kmeans(self,y):
+        eta=np.ones((self.N,))
+        x=np.sort(y)
+        i=np.argsort(y)
+        lst=[1]
+        for i in range(self.J-1):
+            lst.append(2)
+        seeds=np.array(lst)*self.N/(2*self.J)
+        seeds=np.ceil(np.cumsum(seeds)).astype(np.int32)
+        
+        last_i=np.ones((self.N,))
+        m=x[seeds]
+        
+        
+        d=np.zeros((self.J,self.N))
+        
+        for iter in range(100):
+            for j in range(self.J):
+                d[j,:]=(y-m[j])**2
+
+            i=np.argmin(d,0)
+            if (i-last_i).sum()==0:
+                break;
+            else:
+                for j in range(self.J):
+                    if (eta[np.where(i==j)].sum()==0):
+                        m[j]=(eta[np.where(i==j)]*y[np.where(i==j)]).sum()
+                    else:
+                        m[j]=(eta[np.where(i==j)]*y[np.where(i==j)]).sum()/eta[np.where(i==j)].sum()
+                last_i=i
+        
+        #compute variances and mixing proportions
+        v=np.zeros((self.J,))
+        gammas=np.zeros((self.J,self.N))
+        mix_prob=np.zeros((self.J,))
+        for j in range(self.J):
+            v[j]=(eta[np.where(i==j)]*(y[np.where(i==j)]-m[j])**2).sum()/((eta[np.where(i==j)]).sum()+np.finfo(float).eps)
+            if v[j]==0:
+                v[j]=self.N
+            
+            mix_prob[j]=y[np.where(i==j)].size/self.N
+            gammas[j,:]=(1.0/(2*np.pi*v[j]))*np.exp(-((y-m[j])**2)/(2*v[j]))*mix_prob[j]
+        sumg=np.repeat(gammas.sum(0).reshape(-1,1),self.J,1).T
+
+        gammas/=sumg
+        return gammas, v, m, mix_prob/mix_prob.sum()
+        
+    def initialize_mixtures(self,y):
+        
+        print('Initializing mixture parameters using kmeans...')
+        self.t_e_1=np.zeros((self.K,self.J))
+        self.t_e_2=np.zeros((self.K,self.J))  
+        self.t_xi=np.zeros((self.K,self.J))
+        self.zeta=np.zeros((self.N,self.K,self.J))
+        for k in range(self.K):
+            m_0=y[:,k].mean()
+            v_0=(0.3*(y.max()-y.min()))**2
+            tau_0=1/v_0
+            
+            gammas, kv, m, pi=self.kmeans(y[:,k])
+            mean_precision=(1./kv).mean()
+            var_precision=np.std(1/kv)**2
+            b_0=(var_precision/mean_precision).mean()
+            c_0=(mean_precision**2/var_precision).mean()
+            
+            la=pi
+            mm=m
+
+            v=kv.mean()*np.arange(1,self.J+1)/(self.N/self.J)
+            
+            b=np.zeros(self.J)
+            c=np.zeros(self.J)
+            for s in range(self.J):
+                if kv[s]>0:
+                    precision=(1/kv[s])
+                else:
+                    precision=mean_precision
+                b[s]=var_precision/precision
+                c[s]=precision**2/var_precision
+            
+            
+            #print(renspo.shape)
+            #print(renspo)
+            self.t_xi[k,:]=la
+            self.t_e_1[k,:]=b
+            self.t_e_2[k,:]=c
+            self.zeta[:,k,:]=gammas.T
+       
+        
+    def initiliaze_posterior(self,data):
+        
+        
+        #overcomplete so random
+        if (self.D<self.K):
+            G=np.random.normal(0,1,(self.D,self.K))
+            y=np.dot(np.dot(np.linalg.inv(np.dot(G.T,G)),G.T),(data-data.mean(0).reshape(-1,1)).T).T
+            m_G_hat=G
+            mu_y_hat=y
+            var_noise=np.var(data)/5.0
+            l_hat=(1.0/var_noise).mean()*np.ones((self.D,1))
+            
+        else:
+            
+            #whitening and centering
+            init_data=preprocessing.scale(data)
+        
+            #svd centered matrix
+            [U,l,V]=np.linalg.svd(init_data)
+
+                
+            m_G_hat=V[:,:self.K]
+            G=m_G_hat
+            
+            
+            if (G.shape[0]==G.shape[1]):
+                print('Square matrix..')
+                var_noise=np.var(init_data)/5.0
+                isovalue=(1./var_noise).mean()
+            else:
+                values=np.diag(l)
+                explained=values[:self.K,:]
+                unexplained=values[self.K:,:]
+                mean_crp=unexplained.mean()**2/self.D
+                isovalue=1.0/mean_crp
+            
+            noise=np.ones((self.D,1))*isovalue
+            noise_prec_vect=noise
+            l_hat=noise_prec_vect
+        
+            y=np.dot(np.dot(np.linalg.inv(np.dot(G.T,G)),G.T),init_data.T).T
+            mu_y_hat=y
+        
+        self.t_s=np.random.gamma(1,1,(self.N,self.K))
+        self.t_m=mu_y_hat
+        self.t_a=0.5*self.N*self.D
+        self.t_b=(l_hat*self.t_a).sum()
+        self.t_a=self.N*self.D/2
+        self.t_b=(l_hat*self.t_a).sum()
+        self.t_mu=m_G_hat
+        self.t_l=1*np.random.gamma(1,1,(self.D,self.K))
+        return y
     
     #===========================================================================
     # Update the number of features
@@ -455,7 +607,6 @@ class IBP_ICA:
             self.zeta[mb_indices[n],:,:]=(np.exp(psi(self.t_xi)-psi(self.t_xi.sum(1)).reshape(-1,1)\
                                                    +0.5*(psi(self.t_e_1)-np.log(self.t_e_2)-(self.t_e_1/self.t_e_2)*(self.t_m[mb_indices[n],:]**2+self.t_s[mb_indices[n],:]).reshape(-1,1))))
             self.zeta[mb_indices[n],:,:]/=self.zeta[mb_indices[n],:,:].sum(1).reshape(-1,1).astype('float64')
-            
                        
     #CALCULATION OF THE LOWER BOUND,
     #SWITCHED FROM THEANO, MUST CHECK SOME STUFF 
@@ -624,7 +775,7 @@ class IBP_ICA:
         Find which components are being used
         '''
         
-        threshold=5*10**-4
+        threshold=10**-3
         q=expit(self.omega)
         used_k=[]
         for k in range(self.K):
@@ -711,32 +862,35 @@ class IBP_ICA:
         with open(start_time+'/bound_iter_'+str(iteration)+'.pickle', 'wb') as f:  
                 pickle.dump(LL, f)
                 
-    def unmix(self):
-        pass
+#     def unmix(self,x):
+#         G,G_sq=self.t_mu,self.t_mu**2+1/self.t_l
+#         noise=self.t_a/self.t_b
+#         mn=0
+#         old_x=np.dot(np.dot(np.linalg.inv(np.dot(G.T,G)),G.T),x.T)
+#         noiseG=np.repeat(noise, 1,self.K)*G
+#         data_bit=np.dot(noiseG.T,x.T)
+#         
+#         preweight=noise*G_sq
+#         weight_G=np.repeat(preweight,1,self.N)
+#         
+#         
+#         for i in range(self.K):
+            
     #===========================================================================
     # Some naive creation of synthetic data
     #===========================================================================
-    def create_synthetic_data(self,components=5):
-        #G=np.random.normal(0,1,size=(self.D,components))
-        #y=np.random.normal(0,1,size=(components,self.N))
-        #return np.dot(G,y).T,G,y
-        #np.random.seed(0)
-        #n_samples = 2000
-        #time = np.linspace(0, 8, n_samples)
-        #s1 = np.sin(2 * time)  # Signal 1 : sinusoidal signal
-        #s2 = np.sign(np.sin(3 * time))  # Signal 2 : square signal
-        #s3 = signal.sawtooth(2 * np.pi * time)  # Signal 3: saw tooth signal
-
-        #S = np.c_[s1, s2, s3]
-        #S += 0.2 * np.random.normal(size=S.shape)  # Add noise
-
-        #S /= S.std(axis=0)  # Standardize data
-        # Mix data
-        #A = np.array([[1, 1, 1], [0.5, 2, 1.0], [1.5, 1.0, 2.0]])  # Mixing matrix
-        #X = np.dot(S, A.T)  # Generate observations
-        #return X,0,0
-        x=sio.loadmat('data/helwig_snr_1_overlap_1.mat')
+    def create_synthetic_data(self,dataset,components=5):
+        x=sio.loadmat(dataset)
         x=x["X"]
+        x=x.reshape(180,3,3000)[:,0,:]
+        #ind=np.arange(500,1000)
+        #ind2=np.arange(3000,4500)
+        #al=np.append(ind,ind2)
+        #ind=np.arange(500,1000,1)
+        #ind2=np.arange(3000,4500,1)
+        #ind_all=list(ind)
+        #ind_all.extend(list(ind2))
+        #x=x[:,ind_all]
         return x.T,0,0
 #         
     
@@ -749,46 +903,48 @@ if __name__ == '__main__':
     #some initial variables
     initN=1000
     initD=4
-    initJ=10
+    initJ=5
     initS=60
-    
+    dataset='data/helwig_snr_1_overlap_1'
+    data='helwig_snr_1_overlap_1_find_features'
     #x=datasets.load_iris()
     #x=x.data
     #initN,initD=x.shape
     #initialize IBP_ICA object
-    z=IBP_ICA(3,initD,initJ,initS,initN)
+    z=IBP_ICA(5,initD,initJ,initS,initN)
     
     #create some synthetic data
-    x,_,_=z.create_synthetic_data(10)
+    x,_,_=z.create_synthetic_data(dataset)
+    #x=x[:1000,:]
     z.N=x.shape[0]
     z.D=x.shape[1]
     
     
     #init the posterior parameters
-    z.init_params()
+    z.init_params(x)
     
-    print(z.N)
-    print(z.D)    
+    print('N:',z.N,'D:',z.D)
    
     iteration=0
     max_iter=1000
-    elbo_tolerance=10**-2
+    elbo_tolerance=10**-3
     #keep the lower bound for each iteration
-    LL=np.zeros((max_iter,int(z.N/z.S)))
-    LL_iterations=np.zeros((max_iter,1))
+    LL=np.empty((max_iter,int(z.N/z.S)))
+    LL_iterations=np.empty((max_iter,1))
     
-    start_time=str(iteration)+(time.strftime("%Y-%m-%d-%H:%M").replace(" ","_")+'_batch_size_'+str(initS)+'_D_'+str(z.D)+'helwig_overlap_1_SNR_1_random_init_step_1000')
+    start_time=str(iteration)+(time.strftime("%Y-%m-%d-%H:%M").replace(" ","_")+'_batch_size_'+str(initS)+'_D_'+str(z.D)+'_data_'+data+'_one_subject')
     global_min=0
     #repeat until maxi iterations
     st=time.time()
     while iteration<max_iter:
-        if (iteration % 10==0):
-            print('ELBO at iteration',iteration,":",z.calculate_lower_bound(x))
+        if (iteration % 5 ==0):
+            print('ELBO at iteration',iteration,":",LL[iteration-1,-1])
         
         iteration+=1
         print("Stochastic IBP-ICA iteration: ",iteration)
         #set step size for this iteration (Paisley et al.) 
         z.rho=(iteration+1000.0)**-.75
+       
         
         #create all the random minibatches for this iteration
         random_indices=np.arange(z.N)
@@ -821,11 +977,10 @@ if __name__ == '__main__':
         #check convergence
         if iteration>1:
             if abs(LL_iterations[iteration-1,0]-LL_iterations[iteration-2,0])<elbo_tolerance:
-                print(LL_iterations)
                 print("Reached ELBO tolerance level..")
                 break
-        #if (iteration %5==0):
-        #   z.feature_update(miniBatch)             
+        if (iteration %5==0):
+            z.feature_update(miniBatch)             
             
         #save params for each iteration
         z.save_params(iteration,start_time,LL[iteration-1,:])
