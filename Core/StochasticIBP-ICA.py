@@ -22,6 +22,11 @@ import collections
 from recordclass import recordclass
 import time
 
+temp=0
+        for k in range(self.K):
+            temp+=-2*self.t_m[s,k]*np.dot(self.t_mu[:,k].T,x[s,:].T)+2*(self.t_m[s,k]*self.t_m[s,k+1:]*np.dot(self.t_mu[:,k].T,self.t_mu[:,k+1:])).sum()\
+            +(self.t_s[s,k]+self.t_m[s,k]**2)*(np.trace(np.diag(self.t_l[:,k]))+np.dot(self.t_mu[:,k].T,self.t_mu[:,k]))
+
 class IBP_ICA:
     
     def __init__(self,K,D,J,S ):

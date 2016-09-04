@@ -5,11 +5,18 @@ Created on Jun 8, 2016
 '''
 
 
-from pymc3 import Model, Normal, Beta,Gamma,Deterministic,Bernoulli,DensityDist,Dirichlet,Categorical
+from pymc3 import Model, Normal, Beta,Gamma,Deterministic,Bernoulli,DensityDist,Dirichlet,Categorical,Multinomial
+import pymc3 as pm
+import theano.tensor as T
+import theano
+import sklearn
 import numpy as np
-import scipy as sp
-from theano import tensor as T
-from numpy import random as r
+import matplotlib.pyplot as plt
+from sklearn import datasets
+from sklearn.preprocessing import scale
+from sklearn.cross_validation import train_test_split
+from sklearn.datasets import make_moons
+import numpy.random as r
 
 def initialize_prior_parameters(K,J,show_values=False):
     gamma_1=r.rand()
@@ -35,34 +42,38 @@ def initialize_prior_parameters(K,J,show_values=False):
     return gamma_1,gamma_2,eta_1,eta_2,c,f,a,b,xi
 
 
-def create_model(K,J,N,D,a,b,c,f,gamma_1,gamma_2,eta_1,eta_2,xi):
-    basic_model=Model()
-    with basic_model:
+def create_model(K,J,N,D,a,b,c,f,gamma_1,gamma_2,eta_1,eta_2,xi,x,y):
+    with pm.Model() as basic_model:
+        
         lambda_k=Gamma("lambda",c,f,shape=K)
+        
         phi=Gamma("phi",a,b)
-        e=Normal("error",0,T.inv(phi)*np.eye(N,D))
+        
+        e=Normal("error",0,T.inv(phi))
+        
         alpha=Gamma("alpha",gamma_1,gamma_2)
-        u=Beta("u_k", 1,alpha,shape=K)
-        pi=Deterministic("pi_k", u*T.concatenate([[1],T.extra_ops.cumprod(u)[:-1]]))
+        
+        u=Beta("u_k", alpha,1,shape=K)
+        
+        pi=Deterministic("pi_k", T.cumprod(u))
+        
         z=Bernoulli("z",pi,shape=(D,K))
-        #Spike and slab distro
-        slab=Normal("slab",0,T.inv(lambda_k),shape=(D,K))
-        G=DensityDist("G",lambda value:z*slab+(1-z)*np.inf)
+
         S_inv=Gamma("s_inv",eta_1,eta_2,shape=(K,J))
+        
         varpi=Dirichlet("varpi",xi,shape=(K,J))
-        inter=Normal("inter",0,T.inv(S_inv),shape=(K,J))
+        
+        inter=Normal("inter",0,tau=S_inv,shape=(K,J))
 
         #mixture model
-        components=Categorical('component',p=varpi.T,shape=(K,J))
-        y=Normal("y",mu=0,sd=T.inv(S_inv)[components])
-        print(G)
-        print(y.shape)
-#         if (z==0):
-#             G=Deterministic("g", 1)
-#         else:
-#             G=Normal("g",0,T.inv(lambda_k))
-#         print(G)
-        
+        components=Multinomial('zeta',1,p=varpi,shape=(N,K,J))
+        y=Normal("y",mu=0,tau=S_inv,shape=(N,K))**components
+       
+        G=z*Normal("g",0,T.inv(lambda_k),shape=(D,K))
+        X=Normal('x_obs',mu=T.dot(G,y),tau=phi,observed=x)
+    
+    with basic_model:
+        v_params = pm.variational.advi(n=50000)
             
     
 def ibp_ica():
@@ -70,8 +81,14 @@ def ibp_ica():
     J=8
     D=5
     N=10
+    X, Y = make_moons(noise=0.2, random_state=0, n_samples=1000)
+    X = scale(X)
+    X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=.5)
     gamma_1,gamma_2,eta_1,eta_2,c,f,a,b,xi=initialize_prior_parameters(K, J, False)
-    create_model(K, J,N,D,a,b,c,f,gamma_1,gamma_2,eta_1,eta_2,xi)
+    ann_input = theano.shared(X_train)
+    ann_output = theano.shared(Y_train)
+    
+    create_model(K, J,N,D,a,b,c,f,gamma_1,gamma_2,eta_1,eta_2,xi,X_train,Y_train)
     
 if __name__ == '__main__':
     ibp_ica()
