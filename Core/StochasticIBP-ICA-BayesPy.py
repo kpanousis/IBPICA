@@ -37,7 +37,7 @@ def create_model(K,J):
     phi=Gamma(a,b)
     lambda_k=Gamma(c,f,plates=(K,1))
     alpha=Gamma(gamma_1,gamma_2)
-    u_k=Beta(1,alpha,plates=(K,1))
+    u_k=Beta([1,1])
     
     print(phi," ",lambda_k.plates," ",alpha, " ",u_k)
     

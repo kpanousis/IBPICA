@@ -5,7 +5,7 @@ Created on Jun 8, 2016
 '''
 
 
-from pymc3 import Model, Normal, Beta,Gamma,Deterministic,Bernoulli,DensityDist,Dirichlet,Categorical,Multinomial
+from pymc3 import Model, Normal, Beta,Gamma,Deterministic,Bernoulli,DensityDist,Dirichlet,Categorical,Multinomial,MvNormal
 import pymc3 as pm
 import theano.tensor as T
 import theano
@@ -49,7 +49,7 @@ def create_model(K,J,N,D,a,b,c,f,gamma_1,gamma_2,eta_1,eta_2,xi,x,y):
         
         phi=Gamma("phi",a,b)
         
-        e=Normal("error",0,T.inv(phi))
+        
         
         alpha=Gamma("alpha",gamma_1,gamma_2)
         
@@ -59,34 +59,38 @@ def create_model(K,J,N,D,a,b,c,f,gamma_1,gamma_2,eta_1,eta_2,xi,x,y):
         
         z=Bernoulli("z",pi,shape=(D,K))
 
-        S_inv=Gamma("s_inv",eta_1,eta_2,shape=(K,J))
+        s_kj=Gamma("s_kj",eta_1,eta_2,shape=(K,J))
         
+                
+        #mixture model
         varpi=Dirichlet("varpi",xi,shape=(K,J))
         
-        inter=Normal("inter",0,tau=S_inv,shape=(K,J))
-
-        #mixture model
-        components=Multinomial('zeta',1,p=varpi,shape=(N,K,J))
-        y=Normal("y",mu=0,tau=S_inv,shape=(N,K))**components
+        components=Multinomial('zeta',n=1,p=varpi,shape=(N,K,J))
+        
+        print(components.shape)
+        y=(Normal("y",mu=0,tau=s_kj,shape=(N,K,J))*components).sum(2)
        
-        G=z*Normal("g",0,T.inv(lambda_k),shape=(D,K))
-        X=Normal('x_obs',mu=T.dot(G,y),tau=phi,observed=x)
+        G=z*Normal("g",0,tau=lambda_k,shape=(D,K))
+        
+        mu=T.dot(G,y.T).T
+        
+        X=Normal('x_obs',mu=mu,tau=phi,observed=x)
     
-    with basic_model:
-        v_params = pm.variational.advi(n=50000)
+        x=pm.variational.advi()
             
     
 def ibp_ica():
-    K=10
-    J=8
-    D=5
-    N=10
+    K=4
+    J=3
+    D=2
+    N=100
     X, Y = make_moons(noise=0.2, random_state=0, n_samples=1000)
     X = scale(X)
     X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=.5)
     gamma_1,gamma_2,eta_1,eta_2,c,f,a,b,xi=initialize_prior_parameters(K, J, False)
     ann_input = theano.shared(X_train)
     ann_output = theano.shared(Y_train)
+    N,D=X_train.shape
     
     create_model(K, J,N,D,a,b,c,f,gamma_1,gamma_2,eta_1,eta_2,xi,X_train,Y_train)
     
