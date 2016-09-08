@@ -100,7 +100,6 @@ class IBP_ICA:
 
         #         print((t_a/t_b)*(t_mu**2+t_l).sum(0)+(zeta*(t_e_1/t_e_2)).sum(2))
 
-
         self.data = preprocessing.scale(data, with_mean=True, with_std=True)
         self.t_s = np.random.gamma(1, 1, (self.N, self.K))
         self.t_m = np.random.normal(0, 1, (self.N, self.K))
@@ -383,29 +382,37 @@ class IBP_ICA:
         # tilde b update
         temp = np.zeros(self.N)
         for n in range(self.N):
+            temp[n]=np.dot(x[n], x[n].T)-2*np.dot(x[n],np.dot(self.t_mu,self.t_m[n,:].T))+np.dot(self.t_mu,self.t_m[n,:].T).sum()\
+            +((np.diag(np.dot(self.t_mu,self.t_mu.T))+self.t_l.sum(1))*(np.dot(self.t_m[n,:],self.t_m[n,:].T)+self.t_s[n,:].sum())).sum()
+
+        print(temp.sum())
+
+        temp = 0
+        for s in range(self.N):
             for k in range(self.K):
                 temp3 = 0
                 for k_hat in range(k + 1, self.K):
-                    temp3 += 2 * (self.t_m[n, k] * self.t_m[n, k_hat] * np.dot(self.t_mu[:, k].T, self.t_mu[:, k_hat]))
+                    temp3 += 2 * (self.t_m[s, k] * self.t_m[s, k_hat] * np.dot(self.t_mu[:, k].T, self.t_mu[:, k_hat]))
 
-                temp[n] += -2 * self.t_m[n, k] * np.dot(self.t_mu[:, k].T, x[n, :].T) + temp3 \
-                           + (np.dot(self.t_mu[:, k].T, self.t_mu[:, k]) + self.t_l[:, k].sum()) * (
-                    self.t_m[n, k] ** 2 + self.t_s[n, k])
-
-        self.batch_params[0] = self.b + 0.5 * (np.diag(np.dot(x, x.T)) + temp).sum()
+                temp += -2 * self.t_m[s, k] * np.dot(self.t_mu[:, k].T, x[s, :].T) + temp3 \
+                        + (np.dot(self.t_mu[:, k].T, self.t_mu[:, k]) + self.t_l[:, k].sum()) * (
+                    self.t_m[s, k] ** 2 + self.t_s[s, k])
+        print(np.diag(np.dot(x, x.T)).sum()+temp)
+        self.t_a = (self.a + 0.5 * (np.diag(np.dot(x, x.T)) + temp).sum())**-1
 
         # tilde a update
-        self.batch_params[6] = self.a + 0.5 * self.N * self.D
+        self.t_b = self.b + 0.5 * self.N * self.D
 
         # t_e_1 update
-        self.batch_params[1] = self.eta_1 + 0.5 * self.zeta.sum(0)
+        self.t_e_2 = self.eta_2 + 0.5 * self.zeta.sum(0)
 
         # t_e_2 update
-        self.batch_params[2] = self.eta_2 + 0.5 * (
-        self.zeta * (self.t_s.sum(0) + np.diag(np.dot(self.t_m.T, self.t_m)))).sum(0)
+        for k in range(self.K):
+            self.t_e_1[k,:] = (self.eta_1 + 0.5* (
+            self.zeta[:,k,:] * (self.t_s[:, k] + self.t_m[:, k]**2).reshape(-1, 1)).sum(0))**-1
 
         # tilde xi update
-        self.batch_params[3] = self.xi + self.zeta.sum(0)
+        self.t_xi= self.xi + self.zeta.sum(0)
 
         # tilde lambda update
         # self.batch_params[4] = (self.t_a / self.t_b) * (self.t_s.sum(0) + np.diag(np.dot(self.t_m,self.t_m.T))).sum(0) \
@@ -442,13 +449,13 @@ class IBP_ICA:
         self.updateLocalParams(x)
 
         # update the non batch global params
-        self.global_params_VI()
+        #self.global_params_VI()
         # ============================================
         # GLOBAL PARAMETERS UPDATE                
         # ============================================
         self.getBatchGradients(x)
 
-        self.t_b, self.t_e_1, self.t_e_2, self.t_xi, self.t_l, self.t_mu, self.t_a = self.batch_params
+        #self.t_b, self.t_e_2, self.t_e_1, self.t_xi, self.t_l, self.t_mu, self.t_a = self.batch_params
 
     # ===========================================================================
     # Update the local parameters using simple VI
@@ -465,21 +472,22 @@ class IBP_ICA:
         '''
 
         # print("Updating local parameters...")
+        self.t_s = ((self.t_a * self.t_b) * (np.diag(np.dot(self.t_mu.T, self.t_mu)) + self.t_l.sum(0)) + (
+                        self.zeta * (self.t_e_1 * self.t_e_2)).sum(2))**-1
 
-        self.t_s = (self.t_a / self.t_b) * (np.diag(np.dot(self.t_mu.T, self.t_mu)) + self.t_l.sum(0)) + (
-        self.zeta * (self.t_e_1 / self.t_e_2)).sum(2)
-
-        self.t_m = (self.t_a / self.t_b) * self.t_s * np.dot(self.t_mu.T,
-                                                             x.T).T  # -np.dot(self.t_mu[:,k],self.t_m[mb_indices[n],k].T)).T).sum()
+        for k in range(self.K):
+            self.t_m[:, k] = (self.t_a * self.t_b) * self.t_s[:,k] * (self.t_mu[:,k] \
+                            * (x -np.dot(self.t_mu[:, np.arange(self.K) != k], self.t_m[:, np.arange(self.K) != k].T).T)).sum(1)
 
         for n in range(self.N):
             for k in range(self.K):
                 self.zeta[n, k, :] = np.exp(psi(self.t_xi[k, :]) - psi(self.t_xi[k, :].sum()).reshape(-1, 1)
                                             + 0.5 * (
-                                                psi(self.t_e_1[k, :]) - np.log(self.t_e_2[k, :]) - (
-                                                    self.t_e_1[k, :] / self.t_e_2[k, :]) * (
+                                                psi(self.t_e_1[k, :]) + np.log(self.t_e_2[k, :]) - (
+                                                    self.t_e_1[k, :] * self.t_e_2[k, :]) * (
                                                     self.t_m[n, k] ** 2 + self.t_s[n, k])))
                 self.zeta[n, k, :] /= self.zeta[n, k, :].sum().reshape(-1, ).astype('float64')
+
 
     # CALCULATION OF THE LOWER BOUND,
     # SWITCHED FROM THEANO, MUST CHECK SOME STUFF
@@ -540,14 +548,14 @@ class IBP_ICA:
         #                         + ((t_mu[d,:]*t_m[n,:])).sum()**2\
         #                         +((t_mu[d,:]**2+t_l[d,:])*(t_m[n,:]**2+t_s[n,:])-(t_mu[d,:]**2)*(t_m[n,:]**2)).sum())
 
-        final *= -0.5 * (t_a / t_b)
+        final *= -0.5 * (t_a * t_b)
 
         final_y = np.zeros((N, K))
         for n in range(N):
             for k in range(K):
                 for j in range(J):
-                    final_y[n, k] += zeta[n, k, j] * (0.5 * (psi(t_e_1[k, j]) - np.log(t_e_2[k, j])) \
-                                                      - 0.5 * (t_e_1[k, j] / t_e_2[k, j]) * (
+                    final_y[n, k] += zeta[n, k, j] * (0.5 * (psi(t_e_1[k, j]) + np.log(t_e_2[k, j])) \
+                                                      - 0.5 * (t_e_1[k, j] * t_e_2[k, j]) * (
                                                           t_s[n, k] + t_m[n, k] ** 2))
 
         # =======================================================================
@@ -556,9 +564,9 @@ class IBP_ICA:
         # The names are pretty self-explanatory 
         # =======================================================================
 
-        expectation_log_p_a = (g_1 - 1) * (psi(t_g_1) - np.log(t_g_2)) - g_2 * (t_g_1 / t_g_2)
+        expectation_log_p_a = (g_1 - 1) * (psi(t_g_1) + np.log(t_g_2)) - (1 / g_2) * (t_g_1 * t_g_2)
 
-        expectation_log_p_phi = (a - 1) * (psi(t_a) - np.log(t_b)) - b * (t_a / t_b)
+        expectation_log_p_phi = (a - 1) * (psi(t_a) + np.log(t_b)) - (1/b) * (t_a * t_b)
 
         expectation_log_u_k = psi(t_g_1) - np.log(t_g_2) + (t_g_1 / t_g_2 - 1) * (psi(t_tau) - psi(t_tau + h_tau))
 
@@ -566,7 +574,7 @@ class IBP_ICA:
 
         expectation_log_varpi = ((xi - 1) * (psi(t_xi) - psi(t_xi.sum(1)).reshape(-1, 1))).sum(1)
 
-        expectation_log_skj = (e_1 - 1) * (-np.log(t_e_2) + psi(t_e_1)) - e_2 * (t_e_1 / t_e_2)
+        expectation_log_skj = (e_1 - 1) * (np.log(t_e_2) + psi(t_e_1)) - (1/e_2) * (t_e_1 * t_e_2)
 
         expectation_log_gdk = +0.5 * (psi(t_c) - np.log(t_f)).sum() - 0.5 * ((t_c / t_f).T * (t_mu ** 2 + t_l)).sum(1)
 
@@ -576,19 +584,14 @@ class IBP_ICA:
 
         expectation_log_y = final_y
 
-        expectation_log_x = 0.5 * D * (psi(t_a) - np.log(t_b)) + final
+        expectation_log_x = 0.5 * D * (psi(t_a) + np.log(t_b)) + final
 
         # =======================================================================
         # Combine all the terms to get the likelihood
         # =======================================================================
-        likelihood = expectation_log_p_a \
-                     + expectation_log_p_phi \
-                     + expectation_log_u_k.sum() \
-                     + expectation_log_lambda_k.sum() \
+        likelihood = + expectation_log_p_phi \
                      + expectation_log_varpi.sum() \
                      + expectation_log_skj.sum() \
-                     + expectation_log_gdk.sum() \
-                     + expectation_log_zdk.sum() \
                      + expectation_log_varepsilon.sum() \
                      + expectation_log_y.sum() \
                      + expectation_log_x.sum()
@@ -599,16 +602,11 @@ class IBP_ICA:
         # Checked many times but check again
         # Each line is a different entropy term                   
         # =======================================================================
-        entropy = t_g_1 - np.log(t_g_2) + (1.0 - t_g_1) * psi(t_g_1) + gammaln(t_g_1) \
-                  + t_a - np.log(t_b) + (1.0 - t_a) * psi(t_a) + gammaln(t_a) \
-                  + (gammaln(t_tau) + gammaln(h_tau) - gammaln(h_tau + t_tau) - (t_tau - 1.0) * psi(t_tau) - (
-            h_tau - 1.0) * psi(h_tau) + (t_tau + h_tau - 2) * psi(t_tau + h_tau)).sum() \
-                  + (t_c - np.log(t_f) + gammaln(t_c) + (1.0 - t_c) * psi(t_c)).sum() \
+        entropy = + t_a + np.log(t_b) + (1.0 - t_a) * psi(t_a) + gammaln(t_a) \
                   + (gammaln(t_xi).sum(1) - gammaln(t_xi.sum(1)) - (J - t_xi.sum(1)) * psi(t_xi.sum(1)) - (
             (t_xi - 1.0) * psi(t_xi)).sum(1)).sum() \
-                  + (t_e_1 - np.log(t_e_2) + gammaln(t_e_1) + (1.0 - t_e_1) * psi(t_e_1)).sum() \
+                  + (t_e_1 + np.log(t_e_2) + gammaln(t_e_1) + (1.0 - t_e_1) * psi(t_e_1)).sum() \
                   + 0.5 * (np.log(t_l).sum(1)).sum() \
-                  - ((1.0 - q_z) * np.log(1.0 - q_z) + q_z * np.log(q_z)).sum() \
                   + 0.5 * (np.log(t_s).sum(1)).sum() \
                   - (zeta * np.log(zeta)).sum()
 
@@ -774,7 +772,7 @@ if __name__ == '__main__':
 
     # create some synthetic data
     x, s1, s2, s3, A = IBP_ICA.create_synthetic_data(dataset)
-    z = IBP_ICA(3, x.shape[1], 3, 100, x.shape[0], x, A)
+    z = IBP_ICA(3, x.shape[1], 4, 100, x.shape[0], x, A)
     x = z.data
     print('N:', z.N, 'D:', z.D)
 
@@ -816,8 +814,8 @@ if __name__ == '__main__':
             # if (iteration %10==0 and ( (iteration!=max_iter))):
             #   z.feature_update(miniBatch)
 
-    # save params for each iteration
-    z.save_params(iteration, start_time, LL[iteration - 1, :])
+        # save params for each iteration
+        z.save_params(iteration, start_time, LL[iteration - 1])
 
     z.unused_components()
     # Print some stuff and save all
